@@ -1,0 +1,216 @@
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  StatusBar,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
+import { DN, FontFamily, FontSize, Space, Radius } from '@/constants/design-tokens';
+import { PrimaryButton } from '@/components/ui/PrimaryButton';
+import { SkillTag } from '@/components/ui/SkillTag';
+import { MOCK_PROJECTS } from '@/lib/mock-data';
+
+export default function EditProjectScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const [saving, setSaving] = useState(false);
+
+  const project = MOCK_PROJECTS.find((p) => p.id === id);
+
+  // Pre-fill with existing data
+  const [title, setTitle] = useState(project?.title || '');
+  const [description, setDescription] = useState(project?.description || '');
+  const [githubUrl, setGithubUrl] = useState(project?.github_url || '');
+  const [techInput, setTechInput] = useState('');
+  const [techStack, setTechStack] = useState<string[]>(project?.tech_stack || []);
+
+  if (!project) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <StatusBar barStyle="light-content" backgroundColor={DN.bg} />
+        <Feather name="alert-circle" size={48} color={DN.textMuted} />
+        <Text style={styles.notFoundText}>Project not found</Text>
+        <PrimaryButton
+          title="Go Back"
+          variant="ghost"
+          onPress={() => router.back()}
+          fullWidth={false}
+          style={{ marginTop: Space.lg }}
+        />
+      </View>
+    );
+  }
+
+  const addTech = () => {
+    const tech = techInput.trim();
+    if (tech && !techStack.includes(tech)) {
+      setTechStack([...techStack, tech]);
+      setTechInput('');
+    }
+  };
+
+  const removeTech = (tech: string) => {
+    setTechStack(techStack.filter((t) => t !== tech));
+  };
+
+  const handleSave = async () => {
+    if (!title.trim()) {
+      Alert.alert('Validation', 'Project title is required.');
+      return;
+    }
+
+    setSaving(true);
+    // TODO: Update in Supabase once projects table exists
+    setTimeout(() => {
+      setSaving(false);
+      Alert.alert('Success', 'Project updated successfully! (Mock)', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    }, 1000);
+  };
+
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[
+        styles.content,
+        { paddingTop: insets.top + Space.base },
+      ]}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      <StatusBar barStyle="light-content" backgroundColor={DN.bg} />
+
+      {/* Back Button */}
+      <TouchableOpacity
+        style={styles.backBtn}
+        onPress={() => router.back()}
+        activeOpacity={0.7}
+      >
+        <Feather name="arrow-left" size={20} color={DN.textSecondary} />
+        <Text style={styles.backLabel}>Back</Text>
+      </TouchableOpacity>
+
+      {/* Header */}
+      <Text style={styles.headerTitle}>Edit Project</Text>
+      <Text style={styles.subtitle}>Update project details</Text>
+
+      {/* Form */}
+      <View style={styles.formCard}>
+        <View style={styles.field}>
+          <Text style={styles.label}>PROJECT TITLE</Text>
+          <TextInput
+            style={styles.input}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Project title"
+            placeholderTextColor={DN.textPlaceholder}
+          />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>DESCRIPTION</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Project description..."
+            placeholderTextColor={DN.textPlaceholder}
+            multiline
+            numberOfLines={5}
+            textAlignVertical="top"
+          />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>GITHUB REPOSITORY</Text>
+          <View style={styles.inputRow}>
+            <Feather name="github" size={18} color={DN.textMuted} style={{ marginRight: Space.sm }} />
+            <TextInput
+              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+              value={githubUrl}
+              onChangeText={setGithubUrl}
+              placeholder="https://github.com/user/repo"
+              placeholderTextColor={DN.textPlaceholder}
+              autoCapitalize="none"
+            />
+          </View>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>TECH STACK</Text>
+          <View style={styles.techInputRow}>
+            <TextInput
+              style={[styles.input, styles.techInput]}
+              value={techInput}
+              onChangeText={setTechInput}
+              placeholder="Add technology..."
+              placeholderTextColor={DN.textPlaceholder}
+              onSubmitEditing={addTech}
+              returnKeyType="done"
+            />
+            <TouchableOpacity style={styles.addTechBtn} onPress={addTech} activeOpacity={0.7}>
+              <Feather name="plus" size={18} color={DN.cyan} />
+            </TouchableOpacity>
+          </View>
+          {techStack.length > 0 && (
+            <View style={styles.techTags}>
+              {techStack.map((tech) => (
+                <TouchableOpacity key={tech} onPress={() => removeTech(tech)} activeOpacity={0.7}>
+                  <View style={styles.removableTag}>
+                    <SkillTag label={tech} size="md" />
+                    <View style={styles.removeIcon}>
+                      <Feather name="x" size={10} color={DN.textMuted} />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* Actions */}
+      <PrimaryButton title="Save Changes" icon="check" onPress={handleSave} loading={saving} />
+      <PrimaryButton
+        title="Cancel"
+        variant="ghost"
+        onPress={() => router.back()}
+        style={{ marginTop: Space.sm }}
+      />
+
+      <View style={{ height: Space['3xl'] }} />
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: DN.bg },
+  center: { alignItems: 'center', justifyContent: 'center' },
+  content: { paddingHorizontal: Space.lg, paddingBottom: Space['4xl'] },
+  notFoundText: { fontSize: FontSize.base, fontFamily: FontFamily.medium, color: DN.textMuted, marginTop: Space.md },
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: Space.sm, marginBottom: Space.lg },
+  backLabel: { fontSize: FontSize.md, fontFamily: FontFamily.medium, color: DN.textSecondary },
+  headerTitle: { fontSize: FontSize['2xl'], fontFamily: FontFamily.bold, color: DN.textPrimary },
+  subtitle: { fontSize: FontSize.md, fontFamily: FontFamily.regular, color: DN.textMuted, marginTop: Space.xs, marginBottom: Space.xl },
+  formCard: { backgroundColor: DN.bgCard, borderRadius: Radius.xl, borderWidth: 1, borderColor: DN.border, padding: Space.lg, marginBottom: Space.xl },
+  field: { marginBottom: Space.lg },
+  label: { fontSize: FontSize.xs + 1, fontFamily: FontFamily.mono, fontWeight: '700', color: DN.textLabel, letterSpacing: 1, marginBottom: Space.sm },
+  input: { backgroundColor: DN.bgInput, borderRadius: Radius.md, borderWidth: 1, borderColor: DN.borderLight, color: DN.textPrimary, fontSize: FontSize.md, fontFamily: FontFamily.regular, paddingHorizontal: Space.md, height: 48 },
+  inputRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: DN.bgInput, borderRadius: Radius.md, borderWidth: 1, borderColor: DN.borderLight, paddingHorizontal: Space.md, height: 48 },
+  textArea: { height: 120, paddingTop: Space.md, textAlignVertical: 'top' },
+  techInputRow: { flexDirection: 'row', gap: Space.sm },
+  techInput: { flex: 1, marginBottom: 0 },
+  addTechBtn: { width: 48, height: 48, borderRadius: Radius.md, backgroundColor: DN.cyanMuted, borderWidth: 1, borderColor: DN.borderFocus, alignItems: 'center', justifyContent: 'center' },
+  techTags: { flexDirection: 'row', flexWrap: 'wrap', gap: Space.sm, marginTop: Space.md },
+  removableTag: { flexDirection: 'row', alignItems: 'center' },
+  removeIcon: { width: 16, height: 16, borderRadius: 8, backgroundColor: DN.bgElevated, alignItems: 'center', justifyContent: 'center', marginLeft: -4 },
+});

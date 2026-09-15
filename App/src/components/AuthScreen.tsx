@@ -11,11 +11,12 @@ import {
   Platform,
 } from 'react-native';
 import { Feather, FontAwesome } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
 import { performOAuthSignIn, supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 export function AuthScreen() {
-  // Mode: 'signin' | 'register'
-  const [mode, setMode] = useState<'signin' | 'register'>('signin');
+  // Mode: 'signin' | 'register' | 'forgot'
+  const [mode, setMode] = useState<'signin' | 'register' | 'forgot'>('signin');
 
   // Form State
   const [fullName, setFullName] = useState('');
@@ -35,9 +36,55 @@ export function AuthScreen() {
     setSuccessMessage(null);
   };
 
-  const handleModeSwitch = (newMode: 'signin' | 'register') => {
+  const handleModeSwitch = (newMode: 'signin' | 'register' | 'forgot') => {
     setMode(newMode);
     clearFeedback();
+  };
+
+  // Handle Password Reset Request via Supabase Auth
+  const handleResetPassword = async () => {
+    clearFeedback();
+
+    if (!isSupabaseConfigured()) {
+      const msg = 'Supabase credentials missing! Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in your .env file and restart your server.';
+      setErrorMessage(msg);
+      Alert.alert('Configuration Required', msg);
+      return;
+    }
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setErrorMessage('Please enter your email address to reset your password.');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setErrorMessage('Please enter a valid email address.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const redirectUrl = Linking.createURL('/auth/callback');
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: redirectUrl,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      const msg = `Password reset instructions sent to ${trimmedEmail}. Please check your inbox.`;
+      setSuccessMessage(msg);
+      Alert.alert('Reset Link Sent', msg);
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Failed to send password reset email. Please try again.';
+      setErrorMessage(errorMsg);
+      Alert.alert('Reset Failed', errorMsg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Handle Email / Password Form Submit
@@ -244,6 +291,17 @@ export function AuthScreen() {
           </View>
         )}
 
+        {mode === 'forgot' && (
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ color: '#ffffff', fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
+              Reset Password
+            </Text>
+            <Text style={{ color: '#8ba1be', fontSize: 13, lineHeight: 18 }}>
+              Enter your account email to receive a password reset link.
+            </Text>
+          </View>
+        )}
+
         {/* Email Input */}
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>GMAIL / EMAIL ADDRESS</Text>
@@ -263,30 +321,32 @@ export function AuthScreen() {
         </View>
 
         {/* Password Input */}
-        <View style={styles.inputGroup}>
-          <View style={styles.labelRow}>
-            <Text style={styles.inputLabel}>PASSKEY / PASSWORD</Text>
-            {mode === 'signin' && (
-              <TouchableOpacity onPress={() => Alert.alert('Reset Password', 'Enter email address to receive reset link.')}>
-                <Text style={styles.forgotLink}>Forgot password?</Text>
+        {mode !== 'forgot' && (
+          <View style={styles.inputGroup}>
+            <View style={styles.labelRow}>
+              <Text style={styles.inputLabel}>PASSKEY / PASSWORD</Text>
+              {mode === 'signin' && (
+                <TouchableOpacity onPress={() => handleModeSwitch('forgot')}>
+                  <Text style={styles.forgotLink}>Forgot password?</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <View style={styles.inputWrapper}>
+              <Feather name="lock" size={18} color="#657b9c" style={styles.fieldIcon} />
+              <TextInput
+                style={styles.textInput}
+                placeholder="••••••••••••"
+                placeholderTextColor="#475873"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+              />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+                <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#657b9c" />
               </TouchableOpacity>
-            )}
+            </View>
           </View>
-          <View style={styles.inputWrapper}>
-            <Feather name="lock" size={18} color="#657b9c" style={styles.fieldIcon} />
-            <TextInput
-              style={styles.textInput}
-              placeholder="••••••••••••"
-              placeholderTextColor="#475873"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-            />
-            <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
-              <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#657b9c" />
-            </TouchableOpacity>
-          </View>
-        </View>
+        )}
 
         {/* Register Only: Confirm Password */}
         {mode === 'register' && (
@@ -310,7 +370,7 @@ export function AuthScreen() {
         <TouchableOpacity
           activeOpacity={0.85}
           style={styles.submitBtn}
-          onPress={handleSubmit}
+          onPress={mode === 'forgot' ? handleResetPassword : handleSubmit}
           disabled={loading}
         >
           {loading ? (
@@ -318,62 +378,84 @@ export function AuthScreen() {
           ) : (
             <View style={styles.btnContentRow}>
               <Text style={styles.submitBtnText}>
-                {mode === 'signin' ? 'Sign In' : 'Create Account'}
+                {mode === 'signin'
+                  ? 'Sign In'
+                  : mode === 'register'
+                  ? 'Create Account'
+                  : 'Send Reset Link'}
               </Text>
-              <Feather name="arrow-right" size={18} color="#070d19" style={{ marginLeft: 6 }} />
+              <Feather
+                name={mode === 'forgot' ? 'send' : 'arrow-right'}
+                size={18}
+                color="#070d19"
+                style={{ marginLeft: 6 }}
+              />
             </View>
           )}
         </TouchableOpacity>
 
         {/* Toggle Mode Footer */}
         <View style={styles.toggleFooter}>
-          <Text style={styles.toggleText}>
-            {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
-          </Text>
-          <TouchableOpacity onPress={() => handleModeSwitch(mode === 'signin' ? 'register' : 'signin')}>
-            <Text style={styles.toggleLink}>
-              {mode === 'signin' ? 'Create an account' : 'Sign in'}
-            </Text>
-          </TouchableOpacity>
+          {mode === 'forgot' ? (
+            <>
+              <Text style={styles.toggleText}>Remember your password? </Text>
+              <TouchableOpacity onPress={() => handleModeSwitch('signin')}>
+                <Text style={styles.toggleLink}>Back to Sign In</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.toggleText}>
+                {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+              </Text>
+              <TouchableOpacity onPress={() => handleModeSwitch(mode === 'signin' ? 'register' : 'signin')}>
+                <Text style={styles.toggleLink}>
+                  {mode === 'signin' ? 'Create an account' : 'Sign in'}
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </View>
 
       {/* Social OAuth Provider Buttons */}
-      <View style={styles.providersSection}>
-        {/* Google Provider Button */}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          style={styles.providerCyanBtn}
-          onPress={() => handleOAuth('google')}
-          disabled={socialLoading !== null}
-        >
-          {socialLoading === 'google' ? (
-            <ActivityIndicator color="#070d19" />
-          ) : (
-            <View style={styles.providerBtnContent}>
-              <FontAwesome name="google" size={18} color="#070d19" style={styles.providerIcon} />
-              <Text style={styles.providerCyanBtnText}>Continue with Google</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+      {mode !== 'forgot' && (
+        <View style={styles.providersSection}>
+          {/* Google Provider Button */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.providerCyanBtn}
+            onPress={() => handleOAuth('google')}
+            disabled={socialLoading !== null}
+          >
+            {socialLoading === 'google' ? (
+              <ActivityIndicator color="#070d19" />
+            ) : (
+              <View style={styles.providerBtnContent}>
+                <FontAwesome name="google" size={18} color="#070d19" style={styles.providerIcon} />
+                <Text style={styles.providerCyanBtnText}>Continue with Google</Text>
+              </View>
+            )}
+          </TouchableOpacity>
 
-        {/* GitHub Provider Button */}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          style={styles.providerCyanBtn}
-          onPress={() => handleOAuth('github')}
-          disabled={socialLoading !== null}
-        >
-          {socialLoading === 'github' ? (
-            <ActivityIndicator color="#070d19" />
-          ) : (
-            <View style={styles.providerBtnContent}>
-              <FontAwesome name="github" size={20} color="#070d19" style={styles.providerIcon} />
-              <Text style={styles.providerCyanBtnText}>Continue with GitHub</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
+          {/* GitHub Provider Button */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.providerCyanBtn}
+            onPress={() => handleOAuth('github')}
+            disabled={socialLoading !== null}
+          >
+            {socialLoading === 'github' ? (
+              <ActivityIndicator color="#070d19" />
+            ) : (
+              <View style={styles.providerBtnContent}>
+                <FontAwesome name="github" size={20} color="#070d19" style={styles.providerIcon} />
+                <Text style={styles.providerCyanBtnText}>Continue with GitHub</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Bottom Vault Footer */}
       <View style={styles.footerSection}>
