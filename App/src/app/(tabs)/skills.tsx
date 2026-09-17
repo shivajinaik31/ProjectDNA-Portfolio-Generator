@@ -1,18 +1,28 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { DN, FontFamily, FontSize, Space, Radius } from '@/constants/design-tokens';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { SkillTag } from '@/components/ui/SkillTag';
-import { MOCK_SKILLS } from '@/lib/mock-data';
-import type { MockSkill } from '@/lib/mock-data';
+import { supabase } from '@/lib/supabase';
+
+type Skill = {
+  id: string;
+  name: string;
+  category: 'language' | 'framework' | 'tool' | 'concept';
+  proficiency_score: number;
+  project_count: number;
+  color?: string;
+};
 
 const CATEGORIES = [
   { key: 'language', label: 'Languages', icon: 'code' as const, color: '#3178c6' },
@@ -21,7 +31,8 @@ const CATEGORIES = [
   { key: 'concept', label: 'Concepts', icon: 'book-open' as const, color: '#00c3e4' },
 ];
 
-function SkillProgressBar({ skill }: { skill: MockSkill }) {
+function SkillProgressBar({ skill }: { skill: Skill }) {
+  const color = skill.color ?? CATEGORIES.find(c => c.key === skill.category)?.color ?? DN.cyan;
   return (
     <View style={styles.skillRow}>
       <View style={styles.skillInfo}>
@@ -35,14 +46,14 @@ function SkillProgressBar({ skill }: { skill: MockSkill }) {
           style={[
             styles.barFill,
             {
-              width: `${skill.proficiency}%`,
-              backgroundColor: skill.color,
+              width: `${skill.proficiency_score}%`,
+              backgroundColor: color,
             },
           ]}
         />
       </View>
-      <Text style={[styles.proficiency, { color: skill.color }]}>
-        {skill.proficiency}%
+      <Text style={[styles.proficiency, { color }]}>
+        {skill.proficiency_score}%
       </Text>
     </View>
   );
@@ -50,8 +61,41 @@ function SkillProgressBar({ skill }: { skill: MockSkill }) {
 
 export default function SkillDNAScreen() {
   const insets = useSafeAreaInsets();
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const topSkills = [...MOCK_SKILLS].sort((a, b) => b.proficiency - a.proficiency).slice(0, 5);
+  useFocusEffect(
+    useCallback(() => {
+      async function fetchSkills() {
+        setLoading(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { setLoading(false); return; }
+
+        const { data } = await supabase
+          .from('user_skills')
+          .select('*, skills(name, category)')
+          .eq('user_id', user.id)
+          .order('proficiency_score', { ascending: false });
+
+        if (data) {
+          setSkills(data.map((row: any) => ({
+            id: row.id,
+            name: row.skills?.name ?? 'Unknown',
+            category: row.skills?.category ?? 'tool',
+            proficiency_score: Math.round(row.proficiency_score ?? 0),
+            project_count: row.project_count ?? 0,
+          })));
+        }
+        setLoading(false);
+      }
+      fetchSkills();
+    }, [])
+  );
+
+  const topSkills = [...skills].sort((a, b) => b.proficiency_score - a.proficiency_score).slice(0, 5);
+  const avgProficiency = skills.length
+    ? Math.round(skills.reduce((s, sk) => s + sk.proficiency_score, 0) / skills.length)
+    : 0;
 
   return (
     <ScrollView
@@ -75,18 +119,16 @@ export default function SkillDNAScreen() {
       {/* Summary Stats */}
       <View style={styles.summaryRow}>
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryValue}>{MOCK_SKILLS.length}</Text>
+          <Text style={styles.summaryValue}>{skills.length}</Text>
           <Text style={styles.summaryLabel}>Total Skills</Text>
         </View>
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryValue}>
-            {Math.round(MOCK_SKILLS.reduce((s, sk) => s + sk.proficiency, 0) / MOCK_SKILLS.length)}%
-          </Text>
+          <Text style={styles.summaryValue}>{avgProficiency}%</Text>
           <Text style={styles.summaryLabel}>Avg Proficiency</Text>
         </View>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryValue}>
-            {CATEGORIES.filter((c) => MOCK_SKILLS.some((s) => s.category === c.key)).length}
+            {CATEGORIES.filter((c) => skills.some((s) => s.category === c.key)).length}
           </Text>
           <Text style={styles.summaryLabel}>Categories</Text>
         </View>
@@ -95,25 +137,30 @@ export default function SkillDNAScreen() {
       {/* Top Skills */}
       <SectionHeader title="Top Skills" icon="award" />
       <View style={styles.card}>
-        {topSkills.map((skill) => (
-          <SkillProgressBar key={skill.id} skill={skill} />
-        ))}
+        {loading ? (
+          <ActivityIndicator color={DN.cyan} style={{ margin: Space.lg }} />
+        ) : topSkills.length === 0 ? (
+          <Text style={styles.skillMeta}>No skills yet. Add a project to get started.</Text>
+        ) : (
+          topSkills.map((skill) => (
+            <SkillProgressBar key={skill.id} skill={skill} />
+          ))
+        )}
       </View>
 
       {/* Category Breakdown */}
       {CATEGORIES.map((cat) => {
-        const skills = MOCK_SKILLS.filter((s) => s.category === cat.key);
-        if (skills.length === 0) return null;
-
+        const catSkills = skills.filter((s) => s.category === cat.key);
+        if (catSkills.length === 0) return null;
         return (
           <View key={cat.key}>
             <SectionHeader title={cat.label} icon={cat.icon} />
             <View style={styles.card}>
               <View style={styles.tagGrid}>
-                {skills.map((skill) => (
+                {catSkills.map((skill) => (
                   <View key={skill.id} style={styles.tagItem}>
-                    <SkillTag label={skill.name} color={skill.color} size="md" />
-                    <Text style={styles.tagProficiency}>{skill.proficiency}%</Text>
+                    <SkillTag label={skill.name} color={skill.color ?? cat.color} size="md" />
+                    <Text style={styles.tagProficiency}>{skill.proficiency_score}%</Text>
                   </View>
                 ))}
               </View>

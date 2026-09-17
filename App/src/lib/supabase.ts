@@ -64,7 +64,7 @@ export const supabase = createClient(
       storage: ExpoSSRSafeStorage,
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: false,
+      detectSessionInUrl: Platform.OS === 'web', // Required for Web OAuth callback detection
     },
   }
 );
@@ -78,8 +78,25 @@ export async function performOAuthSignIn(provider: 'google' | 'github') {
       throw new Error('Supabase project URL is missing! Please update your .env file with your actual Supabase URL and Key.');
     }
 
-    const redirectUrl = Linking.createURL('/auth/callback');
+    // On web, Linking.createURL() might return projectdna:// which fails in browsers.
+    // We explicitly use the browser's current origin (e.g., http://localhost:8081) on the web.
+    const redirectUrl = Platform.OS === 'web'
+      ? typeof window !== 'undefined' ? window.location.origin : ''
+      : Linking.createURL('/auth/callback');
 
+    if (Platform.OS === 'web') {
+      // On web, we let Supabase handle the browser redirect in the current tab natively
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: redirectUrl,
+        },
+      });
+      if (error) throw error;
+      return { user: null, session: null, error: null };
+    }
+
+    // Native Mobile Flow (iOS / Android)
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
@@ -90,21 +107,58 @@ export async function performOAuthSignIn(provider: 'google' | 'github') {
 
     if (error) throw error;
     if (!data?.url) throw new Error('No auth URL returned by Supabase');
+    
+    console.log('Starting OAuth with Redirect URL:', redirectUrl);
 
     const res = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+    
+    console.log('WebBrowser Result:', res.type);
 
     if (res.type === 'success' && res.url) {
-      const { queryParams } = Linking.parse(res.url);
+      console.log('Full Callback URL:', res.url);
       
-      if (queryParams?.access_token && queryParams?.refresh_token) {
+      let access_token = null;
+      let refresh_token = null;
+
+      // Extract from hash fragment (Supabase OAuth default)
+      const fragment = res.url.split('#')[1];
+      if (fragment) {
+        const extractParams = (str: string) => {
+          const params: Record<string, string> = {};
+          str.split('&').forEach(pair => {
+            const [key, value] = pair.split('=');
+            if (key && value) {
+              params[key] = decodeURIComponent(value);
+            }
+          });
+          return params;
+        };
+        const parsed = extractParams(fragment);
+        access_token = parsed['access_token'];
+        refresh_token = parsed['refresh_token'];
+      }
+
+      // Fallback to query parameters
+      if (!access_token || !refresh_token) {
+        const { queryParams } = Linking.parse(res.url);
+        access_token = queryParams?.access_token as string;
+        refresh_token = queryParams?.refresh_token as string;
+      }
+      
+      if (access_token && refresh_token) {
+        console.log('Successfully extracted tokens. Setting session...');
         const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-          access_token: queryParams.access_token as string,
-          refresh_token: queryParams.refresh_token as string,
+          access_token,
+          refresh_token,
         });
 
         if (sessionError) throw sessionError;
         return { user: sessionData.user, session: sessionData.session, error: null };
+      } else {
+        console.warn('Tokens not found in URL.');
       }
+    } else {
+      console.warn('WebBrowser did not return success or URL is missing.');
     }
 
     return { user: null, session: null, error: null };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,15 +6,16 @@ import {
   StyleSheet,
   StatusBar,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DN, FontFamily, FontSize, Space, Radius } from '@/constants/design-tokens';
 import { SkillTag } from '@/components/ui/SkillTag';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
-import { MOCK_PROJECTS } from '@/lib/mock-data';
+import { supabase } from '@/lib/supabase';
 
 type FilterStatus = 'all' | 'active' | 'completed' | 'archived';
 
@@ -22,11 +23,39 @@ export default function PortfolioScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<FilterStatus>('all');
+  const [projects, setProjects] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      async function fetchProjects() {
+        setLoading(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { setLoading(false); return; }
+
+        const { data } = await supabase
+          .from('projects')
+          .select('*, project_analyses(ai_technologies)')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (data) {
+          setProjects(data.map(p => ({
+            ...p,
+            tech_stack: p.project_analyses?.[0]?.ai_technologies || [],
+            // ai_score is already a column on the projects table
+          })));
+        }
+        setLoading(false);
+      }
+      fetchProjects();
+    }, [])
+  );
 
   const filteredProjects =
     filter === 'all'
-      ? MOCK_PROJECTS
-      : MOCK_PROJECTS.filter((p) => p.status === filter);
+      ? projects
+      : projects.filter((p) => p.status === filter);
 
   const filters: { key: FilterStatus; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -50,7 +79,7 @@ export default function PortfolioScreen() {
           <View>
             <Text style={styles.title}>Portfolio</Text>
             <Text style={styles.subtitle}>
-              {MOCK_PROJECTS.length} project{MOCK_PROJECTS.length !== 1 ? 's' : ''}
+              {projects.length} project{projects.length !== 1 ? 's' : ''}
             </Text>
           </View>
           <TouchableOpacity
@@ -92,7 +121,9 @@ export default function PortfolioScreen() {
         </ScrollView>
 
         {/* Project List */}
-        {filteredProjects.length === 0 ? (
+        {loading ? (
+          <ActivityIndicator color={DN.cyan} style={{ marginTop: Space['2xl'] }} />
+        ) : filteredProjects.length === 0 ? (
           <EmptyState
             icon="folder"
             title="No projects found"
@@ -147,7 +178,7 @@ export default function PortfolioScreen() {
               </Text>
 
               <View style={styles.techRow}>
-                {project.tech_stack.slice(0, 4).map((tech) => (
+                {project.tech_stack.slice(0, 4).map((tech: string) => (
                   <SkillTag key={tech} label={tech} size="sm" />
                 ))}
                 {project.tech_stack.length > 4 && (

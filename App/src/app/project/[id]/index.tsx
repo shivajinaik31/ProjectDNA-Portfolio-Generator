@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   StatusBar,
   TouchableOpacity,
   Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,16 +16,50 @@ import { DN, FontFamily, FontSize, Space, Radius } from '@/constants/design-toke
 import { SkillTag } from '@/components/ui/SkillTag';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { MOCK_PROJECTS } from '@/lib/mock-data';
+import { supabase } from '@/lib/supabase';
 
 export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [project, setProject] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
 
-  const project = MOCK_PROJECTS.find((p) => p.id === id);
+  useEffect(() => {
+    if (!id) return;
+    async function fetchProject() {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*, project_analyses(ai_technologies, ai_summary)')
+        .eq('id', id)
+        .single();
 
-  if (!project) {
+      if (error || !data) {
+        setNotFound(true);
+      } else {
+        setProject({
+          ...data,
+          tech_stack: data.project_analyses?.[0]?.ai_technologies || [],
+          ai_summary: data.project_analyses?.[0]?.ai_summary || null,
+        });
+      }
+      setLoading(false);
+    }
+    fetchProject();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <StatusBar barStyle="light-content" backgroundColor={DN.bg} />
+        <ActivityIndicator color={DN.cyan} size="large" />
+      </View>
+    );
+  }
+
+  if (notFound || !project) {
     return (
       <View style={[styles.container, styles.center]}>
         <StatusBar barStyle="light-content" backgroundColor={DN.bg} />
@@ -97,22 +132,36 @@ export default function ProjectDetailScreen() {
       </View>
 
       {/* Tech Stack */}
-      <SectionHeader title="Tech Stack" icon="code" />
-      <View style={styles.card}>
-        <View style={styles.techGrid}>
-          {project.tech_stack.map((tech) => (
-            <SkillTag key={tech} label={tech} size="md" />
-          ))}
-        </View>
-      </View>
+      {project.tech_stack.length > 0 && (
+        <>
+          <SectionHeader title="Tech Stack" icon="code" />
+          <View style={styles.card}>
+            <View style={styles.techGrid}>
+              {project.tech_stack.map((tech: string) => (
+                <SkillTag key={tech} label={tech} size="md" />
+              ))}
+            </View>
+          </View>
+        </>
+      )}
+
+      {/* AI Summary */}
+      {project.ai_summary && (
+        <>
+          <SectionHeader title="AI Summary" icon="zap" />
+          <View style={styles.card}>
+            <Text style={styles.description}>{project.ai_summary}</Text>
+          </View>
+        </>
+      )}
 
       {/* AI Score */}
-      {project.ai_score !== null && (
+      {project.ai_score !== null && project.ai_score !== undefined && (
         <>
           <SectionHeader title="AI Review Score" icon="zap" />
           <View style={styles.card}>
             <View style={styles.scoreDisplay}>
-              <Text style={styles.scoreNumber}>{project.ai_score}</Text>
+              <Text style={styles.scoreNumber}>{Math.round(project.ai_score)}</Text>
               <Text style={styles.scoreMax}>/100</Text>
             </View>
             <View style={styles.scoreBar}>
@@ -133,20 +182,24 @@ export default function ProjectDetailScreen() {
       )}
 
       {/* GitHub Link */}
-      <SectionHeader title="Repository" icon="github" />
-      <TouchableOpacity
-        style={styles.card}
-        activeOpacity={0.8}
-        onPress={() => Linking.openURL(project.github_url)}
-      >
-        <View style={styles.githubRow}>
-          <Feather name="github" size={18} color={DN.textSecondary} />
-          <Text style={styles.githubUrl} numberOfLines={1}>
-            {project.github_url}
-          </Text>
-          <Feather name="external-link" size={14} color={DN.textMuted} />
-        </View>
-      </TouchableOpacity>
+      {project.github_url ? (
+        <>
+          <SectionHeader title="Repository" icon="github" />
+          <TouchableOpacity
+            style={styles.card}
+            activeOpacity={0.8}
+            onPress={() => Linking.openURL(project.github_url)}
+          >
+            <View style={styles.githubRow}>
+              <Feather name="github" size={18} color={DN.textSecondary} />
+              <Text style={styles.githubUrl} numberOfLines={1}>
+                {project.github_url}
+              </Text>
+              <Feather name="external-link" size={14} color={DN.textMuted} />
+            </View>
+          </TouchableOpacity>
+        </>
+      ) : null}
 
       {/* Metadata */}
       <SectionHeader title="Metadata" icon="info" />
@@ -165,7 +218,7 @@ export default function ProjectDetailScreen() {
           variant="secondary"
           onPress={() => router.push(`/project/${project.id}/edit`)}
         />
-        {project.ai_score === null && (
+        {!project.ai_score && (
           <PrimaryButton
             title="Request AI Review"
             icon="zap"
@@ -179,6 +232,7 @@ export default function ProjectDetailScreen() {
     </ScrollView>
   );
 }
+
 
 function MetaRow({ label, value }: { label: string; value: string }) {
   return (

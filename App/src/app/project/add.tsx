@@ -15,6 +15,7 @@ import { Feather } from '@expo/vector-icons';
 import { DN, FontFamily, FontSize, Space, Radius } from '@/constants/design-tokens';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { SkillTag } from '@/components/ui/SkillTag';
+import { supabase } from '@/lib/supabase';
 
 export default function AddProjectScreen() {
   const router = useRouter();
@@ -51,14 +52,39 @@ export default function AddProjectScreen() {
     }
 
     setSaving(true);
-    // TODO: Save to Supabase once projects table exists
-    // For now, simulate a save
-    setTimeout(() => {
-      setSaving(false);
-      Alert.alert('Success', 'Project added successfully! (Mock)', [
+    
+    try {
+      // Get current user
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !userData?.user) {
+        throw new Error('You must be logged in to add a project.');
+      }
+      
+      const userId = userData.user.id;
+      
+      // Insert into projects table
+      const { error: projectError } = await supabase
+        .from('projects')
+        .insert([{
+          user_id: userId,
+          title: title.trim(),
+          description: description.trim(),
+          github_url: githubUrl.trim() || null,
+          status: 'active'
+        }]);
+        
+      if (projectError) throw projectError;
+      
+      Alert.alert('Success', 'Project added successfully!', [
         { text: 'OK', onPress: () => router.back() },
       ]);
-    }, 1000);
+    } catch (error: any) {
+      console.error('Error saving project:', error);
+      Alert.alert('Error', error.message || 'Failed to add project');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

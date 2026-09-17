@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   Platform,
   TouchableOpacity,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DN, FontFamily, FontSize, Space, Radius } from '@/constants/design-tokens';
@@ -17,12 +17,69 @@ import { StatWidget } from '@/components/ui/StatWidget';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { SkillTag } from '@/components/ui/SkillTag';
 import { useAuth } from '@/hooks/use-auth';
-import { MOCK_PROJECTS, MOCK_ACTIVITIES, MOCK_STATS } from '@/lib/mock-data';
+import { supabase } from '@/lib/supabase';
 
 export default function HomeScreen() {
   const { session, profile } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
+  const [stats, setStats] = useState({ projectCount: 0, skillCount: 0, avgScore: 0 });
+  const [projects, setProjects] = useState<any[]>([]);
+  const [activities, setActivities] = useState<any[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!session?.user?.id) return;
+      const userId = session.user.id;
+
+      async function fetchData() {
+        // Fetch Stats
+        const { data: statsData } = await supabase
+          .from('user_dashboard_stats')
+          .select('*')
+          .eq('user_id', userId)
+          .single();
+
+        if (statsData) {
+          setStats({
+            projectCount: statsData.total_projects || 0,
+            skillCount: statsData.total_skills || 0,
+            avgScore: statsData.avg_ai_score || 0,
+          });
+        }
+
+        // Fetch Recent Projects
+        const { data: projectsData } = await supabase
+          .from('projects')
+          .select('*, project_analyses(ai_technologies)')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(3);
+
+        if (projectsData) {
+          setProjects(projectsData.map(p => ({
+            ...p,
+            tech_stack: p.project_analyses?.[0]?.ai_technologies || [],
+          })));
+        }
+
+        // Fetch Activities
+        const { data: activitiesData } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        if (activitiesData) {
+          setActivities(activitiesData);
+        }
+      }
+
+      fetchData();
+    }, [session?.user?.id])
+  );
 
   const displayName =
     profile?.full_name ||
@@ -59,9 +116,9 @@ export default function HomeScreen() {
 
       {/* ─── Stats Row ───────────────────────────────── */}
       <View style={styles.statsRow}>
-        <StatWidget label="Projects" value={MOCK_STATS.projectCount} icon="layers" />
-        <StatWidget label="Skills" value={MOCK_STATS.skillCount} icon="cpu" iconColor="#6366f1" />
-        <StatWidget label="Avg Score" value={MOCK_STATS.avgScore} icon="trending-up" iconColor="#52c41a" />
+        <StatWidget label="Projects" value={stats.projectCount} icon="layers" />
+        <StatWidget label="Skills" value={stats.skillCount} icon="cpu" iconColor="#6366f1" />
+        <StatWidget label="Avg Score" value={stats.avgScore} icon="trending-up" iconColor="#52c41a" />
       </View>
 
       {/* ─── Quick Actions ───────────────────────────── */}
@@ -107,7 +164,7 @@ export default function HomeScreen() {
         actionLabel="View All"
         onAction={() => router.push('/(tabs)/portfolio')}
       />
-      {MOCK_PROJECTS.slice(0, 3).map((project) => (
+      {projects.map((project) => (
         <TouchableOpacity
           key={project.id}
           style={styles.projectCard}
@@ -140,7 +197,7 @@ export default function HomeScreen() {
               <Text style={styles.moreTech}>+{project.tech_stack.length - 3}</Text>
             )}
           </View>
-          {project.ai_score !== null && (
+          {project.ai_score !== undefined && project.ai_score !== null && (
             <View style={styles.scoreRow}>
               <Feather name="zap" size={12} color={DN.cyan} />
               <Text style={styles.scoreLabel}>AI Score</Text>
@@ -150,29 +207,32 @@ export default function HomeScreen() {
         </TouchableOpacity>
       ))}
 
-      {/* ─── Activity Feed ────────────────────────────── */}
       <SectionHeader title="Recent Activity" icon="clock" />
       <View style={styles.activityCard}>
-        {MOCK_ACTIVITIES.map((activity, idx) => (
-          <View
-            key={activity.id}
-            style={[
-              styles.activityItem,
-              idx < MOCK_ACTIVITIES.length - 1 && styles.activityItemBorder,
-            ]}
-          >
-            <View style={styles.activityDot} />
-            <View style={styles.activityContent}>
-              <Text style={styles.activityMessage}>{activity.message}</Text>
-              <Text style={styles.activityTime}>
-                {new Date(activity.timestamp).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </Text>
+        {activities.length === 0 ? (
+          <Text style={{ ...styles.activityMessage, padding: Space.md, textAlign: 'center' }}>No recent activity.</Text>
+        ) : (
+          activities.map((activity, idx) => (
+            <View
+              key={activity.id}
+              style={[
+                styles.activityItem,
+                idx < activities.length - 1 && styles.activityItemBorder,
+              ]}
+            >
+              <View style={styles.activityDot} />
+              <View style={styles.activityContent}>
+                <Text style={styles.activityMessage}>{activity.message}</Text>
+                <Text style={styles.activityTime}>
+                  {new Date(activity.created_at).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                </Text>
+              </View>
             </View>
-          </View>
-        ))}
+          ))
+        )}
       </View>
 
       <View style={{ height: Space['2xl'] }} />
