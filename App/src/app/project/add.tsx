@@ -12,14 +12,99 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import { DN, FontFamily, FontSize, Space, Radius } from '@/constants/design-tokens';
+import {
+  DN,
+  FontFamily,
+  FontSize,
+  Space,
+  Radius,
+} from '@/constants/design-tokens';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { SkillTag } from '@/components/ui/SkillTag';
 import { supabase } from '@/lib/supabase';
 
+type SkillCategory = 'language' | 'framework' | 'tool' | 'concept';
+
+const getSkillCategory = (skill: string): SkillCategory => {
+  const name = skill.toLowerCase().trim();
+
+  const languages = [
+    'javascript',
+    'typescript',
+    'python',
+    'java',
+    'c',
+    'c++',
+    'c#',
+    'dart',
+    'kotlin',
+    'swift',
+    'go',
+    'rust',
+    'php',
+    'ruby',
+    'sql',
+  ];
+
+  const frameworks = [
+    'react',
+    'react native',
+    'next.js',
+    'nextjs',
+    'angular',
+    'vue',
+    'nuxt',
+    'flutter',
+    'express',
+    'express.js',
+    'node.js',
+    'nodejs',
+    'spring',
+    'spring boot',
+    'django',
+    'laravel',
+    'nestjs',
+    'tailwind',
+  ];
+
+  const tools = [
+    'firebase',
+    'supabase',
+    'mysql',
+    'postgresql',
+    'postgres',
+    'mongodb',
+    'redis',
+    'git',
+    'github',
+    'docker',
+    'aws',
+    'vercel',
+    'nginx',
+    'xampp',
+    'figma',
+    'postman',
+  ];
+
+  if (languages.includes(name)) {
+    return 'language';
+  }
+
+  if (frameworks.includes(name)) {
+    return 'framework';
+  }
+
+  if (tools.includes(name)) {
+    return 'tool';
+  }
+
+  return 'concept';
+};
+
 export default function AddProjectScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
   const [saving, setSaving] = useState(false);
 
   // Form state
@@ -31,14 +116,28 @@ export default function AddProjectScreen() {
 
   const addTech = () => {
     const tech = techInput.trim();
-    if (tech && !techStack.includes(tech)) {
-      setTechStack([...techStack, tech]);
-      setTechInput('');
+
+    if (!tech) {
+      return;
     }
+
+    const alreadyExists = techStack.some(
+      (item) => item.toLowerCase() === tech.toLowerCase()
+    );
+
+    if (alreadyExists) {
+      setTechInput('');
+      return;
+    }
+
+    setTechStack((current) => [...current, tech]);
+    setTechInput('');
   };
 
   const removeTech = (tech: string) => {
-    setTechStack(techStack.filter((t) => t !== tech));
+    setTechStack((current) =>
+      current.filter((item) => item !== tech)
+    );
   };
 
   const handleSubmit = async () => {
@@ -46,42 +145,140 @@ export default function AddProjectScreen() {
       Alert.alert('Validation', 'Project title is required.');
       return;
     }
+
     if (!description.trim()) {
       Alert.alert('Validation', 'Project description is required.');
       return;
     }
 
     setSaving(true);
-    
+
     try {
-      // Get current user
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !userData?.user) {
+      // Get logged-in user
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
         throw new Error('You must be logged in to add a project.');
       }
-      
-      const userId = userData.user.id;
-      
-      // Insert into projects table
-      const { error: projectError } = await supabase
+
+      // 1. Create project
+      const { data: project, error: projectError } = await supabase
         .from('projects')
-        .insert([{
-          user_id: userId,
+        .insert({
+          user_id: user.id,
           title: title.trim(),
           description: description.trim(),
           github_url: githubUrl.trim() || null,
-          status: 'active'
-        }]);
-        
-      if (projectError) throw projectError;
-      
-      Alert.alert('Success', 'Project added successfully!', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+          status: 'active',
+        })
+        .select('id')
+        .single();
+
+      if (projectError) {
+        throw projectError;
+      }
+
+      // No skills selected
+      if (techStack.length === 0) {
+        router.back();
+        return;
+      }
+
+      // Normalize skill names
+      const skillNames = [...new Set(
+        techStack
+          .map((skill) => skill.trim())
+          .filter(Boolean)
+      )];
+
+      // 2. Find existing skills
+      const { data: existingSkills, error: skillsFetchError } =
+        await supabase
+          .from('skills')
+          .select('id, name')
+          .in('name', skillNames);
+
+      if (skillsFetchError) {
+        throw skillsFetchError;
+      }
+
+      const existingSkillMap = new Map(
+        (existingSkills || []).map((skill) => [
+          skill.name.toLowerCase(),
+          skill.id,
+        ])
+      );
+
+      // 3. Create skills that don't already exist
+      const missingSkills = skillNames.filter(
+        (skill) => !existingSkillMap.has(skill.toLowerCase())
+      );
+
+      if (missingSkills.length > 0) {
+        const skillsToInsert = missingSkills.map((skill) => ({
+          name: skill,
+          category: getSkillCategory(skill),
+        }));
+
+        const { data: newSkills, error: skillsInsertError } =
+          await supabase
+            .from('skills')
+            .insert(skillsToInsert)
+            .select('id, name');
+
+        if (skillsInsertError) {
+          throw skillsInsertError;
+        }
+
+        (newSkills || []).forEach((skill) => {
+          existingSkillMap.set(
+            skill.name.toLowerCase(),
+            skill.id
+          );
+        });
+      }
+
+      // 4. Create project-skill relationships
+      const projectSkills = skillNames
+        .map((skill) => {
+          const skillId = existingSkillMap.get(
+            skill.toLowerCase()
+          );
+
+          if (!skillId) {
+            return null;
+          }
+
+          return {
+            project_id: project.id,
+            skill_id: skillId,
+            confidence_score: 1.0,
+          };
+        })
+        .filter(Boolean);
+
+      if (projectSkills.length > 0) {
+        const { error: projectSkillsError } = await supabase
+          .from('project_skills')
+          .insert(projectSkills);
+
+        if (projectSkillsError) {
+          throw projectSkillsError;
+        }
+      }
+
+      // Database trigger updates user_skills automatically
+      router.back();
     } catch (error: any) {
       console.error('Error saving project:', error);
-      Alert.alert('Error', error.message || 'Failed to add project');
+
+      Alert.alert(
+        'Error',
+        error?.message || 'Failed to add project'
+      );
     } finally {
       setSaving(false);
     }
@@ -97,7 +294,10 @@ export default function AddProjectScreen() {
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
-      <StatusBar barStyle="light-content" backgroundColor={DN.bg} />
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={DN.bg}
+      />
 
       {/* Back Button */}
       <TouchableOpacity
@@ -105,12 +305,17 @@ export default function AddProjectScreen() {
         onPress={() => router.back()}
         activeOpacity={0.7}
       >
-        <Feather name="arrow-left" size={20} color={DN.textSecondary} />
+        <Feather
+          name="arrow-left"
+          size={20}
+          color={DN.textSecondary}
+        />
         <Text style={styles.backLabel}>Back</Text>
       </TouchableOpacity>
 
       {/* Header */}
       <Text style={styles.title}>Add Project</Text>
+
       <Text style={styles.subtitle}>
         Add a new project to your portfolio
       </Text>
@@ -120,6 +325,7 @@ export default function AddProjectScreen() {
         {/* Title */}
         <View style={styles.field}>
           <Text style={styles.label}>PROJECT TITLE</Text>
+
           <TextInput
             style={styles.input}
             value={title}
@@ -132,6 +338,7 @@ export default function AddProjectScreen() {
         {/* Description */}
         <View style={styles.field}>
           <Text style={styles.label}>DESCRIPTION</Text>
+
           <TextInput
             style={[styles.input, styles.textArea]}
             value={description}
@@ -147,10 +354,23 @@ export default function AddProjectScreen() {
         {/* GitHub URL */}
         <View style={styles.field}>
           <Text style={styles.label}>GITHUB REPOSITORY</Text>
+
           <View style={styles.inputRow}>
-            <Feather name="github" size={18} color={DN.textMuted} style={{ marginRight: Space.sm }} />
+            <Feather
+              name="github"
+              size={18}
+              color={DN.textMuted}
+              style={{ marginRight: Space.sm }}
+            />
+
             <TextInput
-              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+              style={[
+                styles.input,
+                {
+                  flex: 1,
+                  marginBottom: 0,
+                },
+              ]}
               value={githubUrl}
               onChangeText={setGithubUrl}
               placeholder="https://github.com/user/repo"
@@ -164,6 +384,7 @@ export default function AddProjectScreen() {
         {/* Tech Stack */}
         <View style={styles.field}>
           <Text style={styles.label}>TECH STACK</Text>
+
           <View style={styles.techInputRow}>
             <TextInput
               style={[styles.input, styles.techInput]}
@@ -174,14 +395,20 @@ export default function AddProjectScreen() {
               onSubmitEditing={addTech}
               returnKeyType="done"
             />
+
             <TouchableOpacity
               style={styles.addTechBtn}
               onPress={addTech}
               activeOpacity={0.7}
             >
-              <Feather name="plus" size={18} color={DN.cyan} />
+              <Feather
+                name="plus"
+                size={18}
+                color={DN.cyan}
+              />
             </TouchableOpacity>
           </View>
+
           {techStack.length > 0 && (
             <View style={styles.techTags}>
               {techStack.map((tech) => (
@@ -191,9 +418,17 @@ export default function AddProjectScreen() {
                   activeOpacity={0.7}
                 >
                   <View style={styles.removableTag}>
-                    <SkillTag label={tech} size="md" />
+                    <SkillTag
+                      label={tech}
+                      size="md"
+                    />
+
                     <View style={styles.removeIcon}>
-                      <Feather name="x" size={10} color={DN.textMuted} />
+                      <Feather
+                        name="x"
+                        size={10}
+                        color={DN.textMuted}
+                      />
                     </View>
                   </View>
                 </TouchableOpacity>
@@ -221,6 +456,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: DN.bg,
   },
+
   content: {
     paddingHorizontal: Space.lg,
     paddingBottom: Space['4xl'],
@@ -233,6 +469,7 @@ const styles = StyleSheet.create({
     gap: Space.sm,
     marginBottom: Space.lg,
   },
+
   backLabel: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.medium,
@@ -245,6 +482,7 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bold,
     color: DN.textPrimary,
   },
+
   subtitle: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,
@@ -262,9 +500,11 @@ const styles = StyleSheet.create({
     padding: Space.lg,
     marginBottom: Space.xl,
   },
+
   field: {
     marginBottom: Space.lg,
   },
+
   label: {
     fontSize: FontSize.xs + 1,
     fontFamily: FontFamily.mono,
@@ -273,6 +513,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: Space.sm,
   },
+
   input: {
     backgroundColor: DN.bgInput,
     borderRadius: Radius.md,
@@ -284,6 +525,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Space.md,
     height: 48,
   },
+
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -294,19 +536,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: Space.md,
     height: 48,
   },
+
   textArea: {
     height: 120,
     paddingTop: Space.md,
     textAlignVertical: 'top',
   },
+
   techInputRow: {
     flexDirection: 'row',
     gap: Space.sm,
   },
+
   techInput: {
     flex: 1,
     marginBottom: 0,
   },
+
   addTechBtn: {
     width: 48,
     height: 48,
@@ -317,16 +563,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   techTags: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Space.sm,
     marginTop: Space.md,
   },
+
   removableTag: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+
   removeIcon: {
     width: 16,
     height: 16,

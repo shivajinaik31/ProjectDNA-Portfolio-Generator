@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,18 @@ import {
   TouchableOpacity,
   Linking,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import { DN, FontFamily, FontSize, Space, Radius } from '@/constants/design-tokens';
+import {
+  DN,
+  FontFamily,
+  FontSize,
+  Space,
+  Radius,
+} from '@/constants/design-tokens';
 import { SkillTag } from '@/components/ui/SkillTag';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { SectionHeader } from '@/components/ui/SectionHeader';
@@ -22,33 +29,103 @@ export default function ProjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
   const [project, setProject] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [analyzing, setAnalyzing] = useState(false);
   const [notFound, setNotFound] = useState(false);
 
-  useEffect(() => {
+  const fetchProject = async () => {
     if (!id) return;
-    async function fetchProject() {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('projects')
-        .select('*, project_analyses(ai_technologies, ai_summary)')
-        .eq('id', id)
-        .single();
 
-      if (error || !data) {
-        setNotFound(true);
-      } else {
-        setProject({
-          ...data,
-          tech_stack: data.project_analyses?.[0]?.ai_technologies || [],
-          ai_summary: data.project_analyses?.[0]?.ai_summary || null,
-        });
-      }
+    setLoading(true);
+    setNotFound(false);
+
+    const [{ data, error }, { data: skillData, error: skillError }] =
+      await Promise.all([
+        supabase
+          .from('projects')
+          .select(
+            '*, project_analyses(ai_summary, ai_technologies, generated_at)'
+          )
+          .eq('id', id)
+          .single(),
+
+        supabase
+          .from('project_skills')
+          .select('skills(id, name, category)')
+          .eq('project_id', id),
+      ]);
+
+    if (error || !data) {
+      console.error('Project fetch error:', error);
+      setNotFound(true);
       setLoading(false);
+      return;
     }
+
+    if (skillError) {
+      console.error('Skills fetch error:', skillError);
+    }
+
+    const techStack = (skillData ?? [])
+      .map((item: any) => item.skills?.name)
+      .filter(Boolean);
+
+    const analysis = data.project_analyses?.[0];
+
+    setProject({
+      ...data,
+      tech_stack: techStack,
+      ai_summary: analysis?.ai_summary || null,
+    });
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
     fetchProject();
   }, [id]);
+
+  const requestAIReview = async () => {
+    if (!project?.id || analyzing) return;
+
+    try {
+      setAnalyzing(true);
+
+      const { data, error } = await supabase.functions.invoke(
+        'analyze-project',
+        {
+          body: {
+            projectId: project.id,
+          },
+        }
+      );
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || 'AI review failed');
+      }
+
+      await fetchProject();
+
+      router.push(`/project/${project.id}/review`);
+    } catch (error) {
+      console.error('AI review error:', error);
+
+      Alert.alert(
+        'AI Review Failed',
+        error instanceof Error
+          ? error.message
+          : 'Unable to generate the AI review. Please try again.'
+      );
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -63,8 +140,17 @@ export default function ProjectDetailScreen() {
     return (
       <View style={[styles.container, styles.center]}>
         <StatusBar barStyle="light-content" backgroundColor={DN.bg} />
-        <Feather name="alert-circle" size={48} color={DN.textMuted} />
-        <Text style={styles.notFoundText}>Project not found</Text>
+
+        <Feather
+          name="alert-circle"
+          size={48}
+          color={DN.textMuted}
+        />
+
+        <Text style={styles.notFoundText}>
+          Project not found
+        </Text>
+
         <PrimaryButton
           title="Go Back"
           variant="ghost"
@@ -93,7 +179,11 @@ export default function ProjectDetailScreen() {
         onPress={() => router.back()}
         activeOpacity={0.7}
       >
-        <Feather name="arrow-left" size={20} color={DN.textSecondary} />
+        <Feather
+          name="arrow-left"
+          size={20}
+          color={DN.textSecondary}
+        />
         <Text style={styles.backLabel}>Back</Text>
       </TouchableOpacity>
 
@@ -101,44 +191,69 @@ export default function ProjectDetailScreen() {
       <View style={styles.headerCard}>
         <View style={styles.headerTop}>
           <View style={styles.projectIcon}>
-            <Feather name="folder" size={24} color={DN.cyan} />
+            <Feather
+              name="folder"
+              size={24}
+              color={DN.cyan}
+            />
           </View>
+
           <View
             style={[
               styles.statusBadge,
-              project.status === 'completed' && styles.statusCompleted,
-              project.status === 'active' && styles.statusActive,
-              project.status === 'archived' && styles.statusArchived,
+              project.status === 'completed' &&
+                styles.statusCompleted,
+              project.status === 'active' &&
+                styles.statusActive,
+              project.status === 'archived' &&
+                styles.statusArchived,
             ]}
           >
-            <Text style={styles.statusText}>{project.status}</Text>
+            <Text style={styles.statusText}>
+              {project.status}
+            </Text>
           </View>
         </View>
-        <Text style={styles.projectTitle}>{project.title}</Text>
+
+        <Text style={styles.projectTitle}>
+          {project.title}
+        </Text>
+
         <Text style={styles.projectDate}>
           Updated{' '}
-          {new Date(project.updated_at).toLocaleDateString('en-US', {
-            month: 'long',
-            day: 'numeric',
-            year: 'numeric',
-          })}
+          {new Date(project.updated_at).toLocaleDateString(
+            'en-US',
+            {
+              month: 'long',
+              day: 'numeric',
+              year: 'numeric',
+            }
+          )}
         </Text>
       </View>
 
       {/* Description */}
       <SectionHeader title="Description" icon="file-text" />
+
       <View style={styles.card}>
-        <Text style={styles.description}>{project.description}</Text>
+        <Text style={styles.description}>
+          {project.description}
+        </Text>
       </View>
 
       {/* Tech Stack */}
       {project.tech_stack.length > 0 && (
         <>
           <SectionHeader title="Tech Stack" icon="code" />
+
           <View style={styles.card}>
             <View style={styles.techGrid}>
               {project.tech_stack.map((tech: string) => (
-                <SkillTag key={tech} label={tech} size="md" />
+                <SkillTag
+                  key={tech}
+                  label={tech}
+                  size="md"
+                />
               ))}
             </View>
           </View>
@@ -149,53 +264,106 @@ export default function ProjectDetailScreen() {
       {project.ai_summary && (
         <>
           <SectionHeader title="AI Summary" icon="zap" />
+
           <View style={styles.card}>
-            <Text style={styles.description}>{project.ai_summary}</Text>
+            <Text style={styles.description}>
+              {project.ai_summary}
+            </Text>
           </View>
         </>
       )}
 
       {/* AI Score */}
-      {project.ai_score !== null && project.ai_score !== undefined && (
-        <>
-          <SectionHeader title="AI Review Score" icon="zap" />
-          <View style={styles.card}>
-            <View style={styles.scoreDisplay}>
-              <Text style={styles.scoreNumber}>{Math.round(project.ai_score)}</Text>
-              <Text style={styles.scoreMax}>/100</Text>
+      {project.ai_score !== null &&
+        project.ai_score !== undefined && (
+          <>
+            <SectionHeader
+              title="AI Review Score"
+              icon="zap"
+            />
+
+            <View style={styles.card}>
+              <View style={styles.scoreDisplay}>
+                <Text style={styles.scoreNumber}>
+                  {Math.round(project.ai_score)}
+                </Text>
+
+                <Text style={styles.scoreMax}>
+                  /100
+                </Text>
+              </View>
+
+              <View style={styles.scoreBar}>
+                <View
+                  style={[
+                    styles.scoreBarFill,
+                    {
+                      width: `${Math.min(
+                        Math.max(project.ai_score, 0),
+                        100
+                      )}%`,
+                    },
+                  ]}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={styles.viewReviewBtn}
+                onPress={() =>
+                  router.push(
+                    `/project/${project.id}/review`
+                  )
+                }
+                activeOpacity={0.7}
+              >
+                <Feather
+                  name="eye"
+                  size={14}
+                  color={DN.cyan}
+                />
+
+                <Text style={styles.viewReviewText}>
+                  View Full Review
+                </Text>
+              </TouchableOpacity>
             </View>
-            <View style={styles.scoreBar}>
-              <View
-                style={[styles.scoreBarFill, { width: `${project.ai_score}%` }]}
-              />
-            </View>
-            <TouchableOpacity
-              style={styles.viewReviewBtn}
-              onPress={() => router.push(`/project/${project.id}/review`)}
-              activeOpacity={0.7}
-            >
-              <Feather name="eye" size={14} color={DN.cyan} />
-              <Text style={styles.viewReviewText}>View Full Review</Text>
-            </TouchableOpacity>
-          </View>
-        </>
-      )}
+          </>
+        )}
 
       {/* GitHub Link */}
       {project.github_url ? (
         <>
-          <SectionHeader title="Repository" icon="github" />
+          <SectionHeader
+            title="Repository"
+            icon="github"
+          />
+
           <TouchableOpacity
             style={styles.card}
             activeOpacity={0.8}
-            onPress={() => Linking.openURL(project.github_url)}
+            onPress={() =>
+              Linking.openURL(project.github_url)
+            }
           >
             <View style={styles.githubRow}>
-              <Feather name="github" size={18} color={DN.textSecondary} />
-              <Text style={styles.githubUrl} numberOfLines={1}>
+              <Feather
+                name="github"
+                size={18}
+                color={DN.textSecondary}
+              />
+
+              <Text
+                style={styles.githubUrl}
+                numberOfLines={1}
+              >
                 {project.github_url}
               </Text>
-              <Feather name="external-link" size={14} color={DN.textMuted} />
+
+              <Feather
+                name="external-link"
+                size={14}
+                color={DN.textMuted}
+              />
             </View>
           </TouchableOpacity>
         </>
@@ -203,11 +371,31 @@ export default function ProjectDetailScreen() {
 
       {/* Metadata */}
       <SectionHeader title="Metadata" icon="info" />
+
       <View style={styles.card}>
-        <MetaRow label="Created" value={new Date(project.created_at).toLocaleDateString()} />
-        <MetaRow label="Updated" value={new Date(project.updated_at).toLocaleDateString()} />
-        <MetaRow label="Status" value={project.status} />
-        <MetaRow label="ID" value={project.id} />
+        <MetaRow
+          label="Created"
+          value={new Date(
+            project.created_at
+          ).toLocaleDateString()}
+        />
+
+        <MetaRow
+          label="Updated"
+          value={new Date(
+            project.updated_at
+          ).toLocaleDateString()}
+        />
+
+        <MetaRow
+          label="Status"
+          value={project.status}
+        />
+
+        <MetaRow
+          label="ID"
+          value={project.id}
+        />
       </View>
 
       {/* Action Buttons */}
@@ -216,13 +404,23 @@ export default function ProjectDetailScreen() {
           title="Edit Project"
           icon="edit-2"
           variant="secondary"
-          onPress={() => router.push(`/project/${project.id}/edit`)}
+          onPress={() =>
+            router.push(
+              `/project/${project.id}/edit`
+            )
+          }
         />
+
         {!project.ai_score && (
           <PrimaryButton
-            title="Request AI Review"
-            icon="zap"
-            onPress={() => router.push(`/project/${project.id}/review`)}
+            title={
+              analyzing
+                ? 'Generating AI Review...'
+                : 'Request AI Review'
+            }
+            icon={analyzing ? undefined : 'zap'}
+            onPress={requestAIReview}
+            disabled={analyzing}
             style={{ marginTop: Space.sm }}
           />
         )}
@@ -233,12 +431,22 @@ export default function ProjectDetailScreen() {
   );
 }
 
-
-function MetaRow({ label, value }: { label: string; value: string }) {
+function MetaRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   return (
     <View style={styles.metaRow}>
-      <Text style={styles.metaLabel}>{label}</Text>
-      <Text style={styles.metaValue}>{value}</Text>
+      <Text style={styles.metaLabel}>
+        {label}
+      </Text>
+
+      <Text style={styles.metaValue}>
+        {value}
+      </Text>
     </View>
   );
 }
@@ -248,14 +456,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: DN.bg,
   },
+
   center: {
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   content: {
     paddingHorizontal: Space.lg,
     paddingBottom: Space['4xl'],
   },
+
   notFoundText: {
     fontSize: FontSize.base,
     fontFamily: FontFamily.medium,
@@ -270,6 +481,7 @@ const styles = StyleSheet.create({
     gap: Space.sm,
     marginBottom: Space.lg,
   },
+
   backLabel: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.medium,
@@ -285,12 +497,14 @@ const styles = StyleSheet.create({
     padding: Space.xl,
     marginBottom: Space.xl,
   },
+
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Space.md,
   },
+
   projectIcon: {
     width: 48,
     height: 48,
@@ -301,21 +515,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   statusBadge: {
     paddingHorizontal: Space.md,
     paddingVertical: Space.xs,
     borderRadius: Radius.full,
     backgroundColor: DN.bgElevated,
   },
+
   statusCompleted: {
     backgroundColor: DN.successBg,
   },
+
   statusActive: {
     backgroundColor: DN.cyan + '1a',
   },
+
   statusArchived: {
     backgroundColor: DN.bgElevated,
   },
+
   statusText: {
     fontSize: FontSize.xs,
     fontFamily: FontFamily.mono,
@@ -323,11 +542,13 @@ const styles = StyleSheet.create({
     color: DN.textSecondary,
     textTransform: 'capitalize',
   },
+
   projectTitle: {
     fontSize: FontSize['2xl'],
     fontFamily: FontFamily.bold,
     color: DN.textPrimary,
   },
+
   projectDate: {
     fontSize: FontSize.sm,
     fontFamily: FontFamily.mono,
@@ -367,16 +588,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: Space.md,
   },
+
   scoreNumber: {
     fontSize: 48,
     fontFamily: FontFamily.monoBold,
     color: DN.cyan,
   },
+
   scoreMax: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.mono,
     color: DN.textMuted,
   },
+
   scoreBar: {
     height: 8,
     backgroundColor: DN.bgElevated,
@@ -384,11 +608,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: Space.md,
   },
+
   scoreBarFill: {
     height: '100%',
     backgroundColor: DN.cyan,
     borderRadius: 4,
   },
+
   viewReviewBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -396,6 +622,7 @@ const styles = StyleSheet.create({
     gap: Space.xs,
     paddingVertical: Space.sm,
   },
+
   viewReviewText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.medium,
@@ -408,6 +635,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Space.md,
   },
+
   githubUrl: {
     flex: 1,
     fontSize: FontSize.md,
@@ -423,6 +651,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: DN.border,
   },
+
   metaLabel: {
     fontSize: FontSize.sm,
     fontFamily: FontFamily.mono,
@@ -430,6 +659,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+
   metaValue: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,
