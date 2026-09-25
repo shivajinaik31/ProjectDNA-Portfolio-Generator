@@ -21,7 +21,10 @@ import {
 } from '@/constants/design-tokens';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { SkillTag } from '@/components/ui/SkillTag';
+import { TechAutocomplete } from '@/components/ui/TechAutocomplete';
+import { StatusSelector } from '@/components/ui/StatusSelector';
 import { supabase } from '@/lib/supabase';
+import { ProjectStatus } from '@/lib/types';
 
 type SkillCategory = 'language' | 'framework' | 'tool' | 'concept';
 
@@ -111,27 +114,22 @@ export default function AddProjectScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
-  const [techInput, setTechInput] = useState('');
+  const [status, setStatus] = useState<ProjectStatus>('active');
+  const [isPublic, setIsPublic] = useState(false);
+  const [portfolioOrder, setPortfolioOrder] = useState('0');
   const [techStack, setTechStack] = useState<string[]>([]);
 
-  const addTech = () => {
-    const tech = techInput.trim();
-
-    if (!tech) {
-      return;
-    }
+  const addTech = (tech: string) => {
+    const cleanTech = tech.trim();
+    if (!cleanTech) return;
 
     const alreadyExists = techStack.some(
-      (item) => item.toLowerCase() === tech.toLowerCase()
+      (item) => item.toLowerCase() === cleanTech.toLowerCase()
     );
 
-    if (alreadyExists) {
-      setTechInput('');
-      return;
-    }
+    if (alreadyExists) return;
 
-    setTechStack((current) => [...current, tech]);
-    setTechInput('');
+    setTechStack((current) => [...current, cleanTech]);
   };
 
   const removeTech = (tech: string) => {
@@ -172,7 +170,9 @@ export default function AddProjectScreen() {
           title: title.trim(),
           description: description.trim(),
           github_url: githubUrl.trim() || null,
-          status: 'active',
+          status,
+          is_public: isPublic,
+          portfolio_order: Number.parseInt(portfolioOrder, 10) || 0,
         })
         .select('id')
         .single();
@@ -258,7 +258,9 @@ export default function AddProjectScreen() {
             confidence_score: 1.0,
           };
         })
-        .filter(Boolean);
+        .filter(
+          (skill): skill is NonNullable<typeof skill> => skill !== null
+        );
 
       if (projectSkills.length > 0) {
         const { error: projectSkillsError } = await supabase
@@ -381,33 +383,35 @@ export default function AddProjectScreen() {
           </View>
         </View>
 
+        {/* Status */}
+        <View style={styles.field}>
+          <Text style={styles.label}>STATUS</Text>
+          <StatusSelector value={status} onChange={setStatus} />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>PORTFOLIO VISIBILITY</Text>
+          <TouchableOpacity style={styles.visibilityRow} onPress={() => setIsPublic((current) => !current)}>
+            <Feather name={isPublic ? 'eye' : 'eye-off'} size={18} color={isPublic ? DN.cyan : DN.textMuted} />
+            <Text style={styles.visibilityText}>{isPublic ? 'Public — included in your published portfolio' : 'Private — visible only to you'}</Text>
+          </TouchableOpacity>
+          {isPublic && (
+            <TextInput
+              style={[styles.input, styles.orderInput]}
+              value={portfolioOrder}
+              onChangeText={setPortfolioOrder}
+              placeholder="Portfolio order (0 first)"
+              placeholderTextColor={DN.textPlaceholder}
+              keyboardType="number-pad"
+            />
+          )}
+        </View>
+
         {/* Tech Stack */}
         <View style={styles.field}>
           <Text style={styles.label}>TECH STACK</Text>
 
-          <View style={styles.techInputRow}>
-            <TextInput
-              style={[styles.input, styles.techInput]}
-              value={techInput}
-              onChangeText={setTechInput}
-              placeholder="e.g. React, Node.js"
-              placeholderTextColor={DN.textPlaceholder}
-              onSubmitEditing={addTech}
-              returnKeyType="done"
-            />
-
-            <TouchableOpacity
-              style={styles.addTechBtn}
-              onPress={addTech}
-              activeOpacity={0.7}
-            >
-              <Feather
-                name="plus"
-                size={18}
-                color={DN.cyan}
-              />
-            </TouchableOpacity>
-          </View>
+          <TechAutocomplete onAddSkill={addTech} />
 
           {techStack.length > 0 && (
             <View style={styles.techTags}>
@@ -542,27 +546,9 @@ const styles = StyleSheet.create({
     paddingTop: Space.md,
     textAlignVertical: 'top',
   },
-
-  techInputRow: {
-    flexDirection: 'row',
-    gap: Space.sm,
-  },
-
-  techInput: {
-    flex: 1,
-    marginBottom: 0,
-  },
-
-  addTechBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.md,
-    backgroundColor: DN.cyanMuted,
-    borderWidth: 1,
-    borderColor: DN.borderFocus,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  visibilityRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm, paddingVertical: Space.sm },
+  visibilityText: { flex: 1, color: DN.textSecondary, fontFamily: FontFamily.regular, fontSize: FontSize.sm },
+  orderInput: { marginTop: Space.sm },
 
   techTags: {
     flexDirection: 'row',

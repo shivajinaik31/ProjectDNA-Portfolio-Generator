@@ -190,7 +190,7 @@ export default function HomeScreen() {
             {project.description}
           </Text>
           <View style={styles.techRow}>
-            {project.tech_stack.slice(0, 3).map((tech) => (
+            {project.tech_stack.slice(0, 3).map((tech: string) => (
               <SkillTag key={tech} label={tech} size="sm" />
             ))}
             {project.tech_stack.length > 3 && (

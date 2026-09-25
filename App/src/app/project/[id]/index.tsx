@@ -33,7 +33,17 @@ export default function ProjectDetailScreen() {
   const [project, setProject] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [notFound, setNotFound] = useState(false);
+
+  const goBackOrToPortfolio = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace('/(tabs)/portfolio');
+  };
 
   const fetchProject = async () => {
     if (!id) return;
@@ -127,6 +137,83 @@ export default function ProjectDetailScreen() {
     }
   };
 
+  const handleDelete = () => {
+    if (!project) return;
+
+    Alert.alert(
+      'Delete Project',
+      `Are you sure you want to delete "${project.title}"? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              const {
+                data: { user },
+                error: userError,
+              } = await supabase.auth.getUser();
+
+              if (userError || !user) {
+                throw new Error('You must be signed in to delete a project.');
+              }
+
+              // Related records are removed by the database's ON DELETE CASCADE
+              // constraints. Deleting them from the client first can leave partial
+              // data behind when an RLS policy prevents one of those requests.
+              const { data: deletedProject, error } = await supabase
+                .from('projects')
+                .delete()
+                .eq('id', project.id)
+                .eq('user_id', user.id)
+                .select('id')
+                .maybeSingle();
+                
+              if (error) throw error;
+
+              if (!deletedProject) {
+                throw new Error('The project was not deleted. Please refresh and try again.');
+              }
+              
+              router.replace({
+                pathname: '/(tabs)/portfolio',
+                params: { deleted: project.title },
+              });
+            } catch (err: any) {
+              console.error('Error deleting project:', err);
+              Alert.alert('Error', err?.message || 'Failed to delete project.');
+            } finally {
+              setDeleting(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const updateStatus = async (newStatus: string) => {
+    if (!project || project.status === newStatus) return;
+
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('projects')
+        .update({ status: newStatus })
+        .eq('id', project.id);
+
+      if (error) throw error;
+      
+      await fetchProject();
+    } catch (err: any) {
+      console.error('Error updating status:', err);
+      Alert.alert('Error', err?.message || 'Failed to update status.');
+      setLoading(false); // Only disable loading on error, fetchProject does it on success
+    }
+  };
+
+
   if (loading) {
     return (
       <View style={[styles.container, styles.center]}>
@@ -154,7 +241,7 @@ export default function ProjectDetailScreen() {
         <PrimaryButton
           title="Go Back"
           variant="ghost"
-          onPress={() => router.back()}
+          onPress={goBackOrToPortfolio}
           fullWidth={false}
           style={{ marginTop: Space.lg }}
         />
@@ -176,7 +263,7 @@ export default function ProjectDetailScreen() {
       {/* Back Button */}
       <TouchableOpacity
         style={styles.backBtn}
-        onPress={() => router.back()}
+        onPress={goBackOrToPortfolio}
         activeOpacity={0.7}
       >
         <Feather
@@ -230,6 +317,41 @@ export default function ProjectDetailScreen() {
             }
           )}
         </Text>
+
+        <View style={styles.quickActions}>
+          {project.status === 'active' && (
+            <>
+              <TouchableOpacity onPress={() => updateStatus('completed')} style={styles.quickActionBtn}>
+                <Feather name="check-circle" size={14} color={DN.success} />
+                <Text style={[styles.quickActionText, { color: DN.success }]}>Mark Completed</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => updateStatus('archived')} style={styles.quickActionBtn}>
+                <Feather name="archive" size={14} color={DN.textSecondary} />
+                <Text style={[styles.quickActionText, { color: DN.textSecondary }]}>Archive</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          
+          {project.status === 'completed' && (
+            <>
+              <TouchableOpacity onPress={() => updateStatus('active')} style={styles.quickActionBtn}>
+                <Feather name="play" size={14} color={DN.cyan} />
+                <Text style={[styles.quickActionText, { color: DN.cyan }]}>Reactivate</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => updateStatus('archived')} style={styles.quickActionBtn}>
+                <Feather name="archive" size={14} color={DN.textSecondary} />
+                <Text style={[styles.quickActionText, { color: DN.textSecondary }]}>Archive</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {project.status === 'archived' && (
+            <TouchableOpacity onPress={() => updateStatus('active')} style={styles.quickActionBtn}>
+              <Feather name="play" size={14} color={DN.cyan} />
+              <Text style={[styles.quickActionText, { color: DN.cyan }]}>Reactivate</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Description */}
@@ -409,6 +531,7 @@ export default function ProjectDetailScreen() {
               `/project/${project.id}/edit`
             )
           }
+          disabled={analyzing || deleting}
         />
 
         {!project.ai_score && (
@@ -420,10 +543,21 @@ export default function ProjectDetailScreen() {
             }
             icon={analyzing ? undefined : 'zap'}
             onPress={requestAIReview}
-            disabled={analyzing}
+            disabled={analyzing || deleting}
             style={{ marginTop: Space.sm }}
           />
         )}
+
+        <View style={styles.dangerZone}>
+          <PrimaryButton
+            title="Delete Project"
+            icon="trash-2"
+            variant="danger"
+            onPress={handleDelete}
+            loading={deleting}
+            disabled={analyzing || deleting}
+          />
+        </View>
       </View>
 
       <View style={{ height: Space['3xl'] }} />
@@ -556,6 +690,26 @@ const styles = StyleSheet.create({
     marginTop: Space.xs,
   },
 
+  quickActions: {
+    flexDirection: 'row',
+    gap: Space.md,
+    marginTop: Space.lg,
+    paddingTop: Space.md,
+    borderTopWidth: 1,
+    borderTopColor: DN.border,
+  },
+  
+  quickActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.xs,
+  },
+
+  quickActionText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.medium,
+  },
+
   // Card
   card: {
     backgroundColor: DN.bgCard,
@@ -669,5 +823,12 @@ const styles = StyleSheet.create({
   // Actions
   actions: {
     marginTop: Space.base,
+  },
+
+  dangerZone: {
+    marginTop: Space.xl,
+    paddingTop: Space.lg,
+    borderTopWidth: 1,
+    borderTopColor: DN.border,
   },
 });

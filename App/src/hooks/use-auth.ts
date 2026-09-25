@@ -11,6 +11,9 @@ export type UserProfile = {
   role: string;
   github_url: string | null;
   linkedin_url: string | null;
+  portfolio_slug?: string | null;
+  portfolio_is_public?: boolean;
+  portfolio_updated_at?: string | null;
   created_at: string;
   updated_at: string;
 };

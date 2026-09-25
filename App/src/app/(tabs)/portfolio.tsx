@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,23 +8,33 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DN, FontFamily, FontSize, Space, Radius } from '@/constants/design-tokens';
 import { SkillTag } from '@/components/ui/SkillTag';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
+import { FeedbackBanner } from '@/components/ui/FeedbackBanner';
 import { supabase } from '@/lib/supabase';
 
 type FilterStatus = 'all' | 'active' | 'completed' | 'archived';
 
 export default function PortfolioScreen() {
   const router = useRouter();
+  const { deleted } = useLocalSearchParams<{ deleted?: string }>();
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<FilterStatus>('all');
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletedProjectName, setDeletedProjectName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof deleted !== 'string' || !deleted) return;
+
+    setDeletedProjectName(deleted);
+    router.setParams({ deleted: undefined });
+  }, [deleted, router]);
 
   useFocusEffect(
     useCallback(() => {
@@ -90,6 +100,13 @@ export default function PortfolioScreen() {
             <Feather name="plus" size={20} color={DN.bg} />
           </TouchableOpacity>
         </View>
+
+        {deletedProjectName && (
+          <FeedbackBanner
+            type="success"
+            message={`“${deletedProjectName}” was deleted successfully.`}
+          />
+        )}
 
         {/* Filter Bar */}
         <ScrollView

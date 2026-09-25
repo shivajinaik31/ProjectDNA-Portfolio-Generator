@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { DN, FontFamily, FontSize, Space, Radius } from '@/constants/design-tokens';
 import { AvatarDisplay } from '@/components/ui/AvatarDisplay';
@@ -20,6 +21,7 @@ import { supabase } from '@/lib/supabase';
 
 export default function ProfileScreen() {
   const { session, profile, signOut, refreshProfile } = useAuth();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -29,6 +31,13 @@ export default function ProfileScreen() {
   const [bio, setBio] = useState(profile?.bio || '');
   const [githubUrl, setGithubUrl] = useState(profile?.github_url || '');
   const [linkedinUrl, setLinkedinUrl] = useState(profile?.linkedin_url || '');
+  const [portfolioSlug, setPortfolioSlug] = useState(profile?.portfolio_slug || '');
+  const [portfolioIsPublic, setPortfolioIsPublic] = useState(profile?.portfolio_is_public || false);
+
+  useEffect(() => {
+    setPortfolioSlug(profile?.portfolio_slug || '');
+    setPortfolioIsPublic(profile?.portfolio_is_public || false);
+  }, [profile?.portfolio_slug, profile?.portfolio_is_public]);
 
   const displayName =
     profile?.full_name ||
@@ -44,6 +53,15 @@ export default function ProfileScreen() {
 
   const handleSave = async () => {
     if (!session?.user) return;
+    const normalizedSlug = portfolioSlug.trim().toLowerCase();
+    if (normalizedSlug && !/^[a-z0-9-]{3,40}$/.test(normalizedSlug)) {
+      Alert.alert('Invalid portfolio URL', 'Use 3–40 lowercase letters, numbers, or hyphens.');
+      return;
+    }
+    if (portfolioIsPublic && !normalizedSlug) {
+      Alert.alert('Portfolio URL required', 'Choose a portfolio URL before publishing.');
+      return;
+    }
     setSaving(true);
     try {
       const { error } = await supabase
@@ -53,6 +71,9 @@ export default function ProfileScreen() {
           bio: bio.trim(),
           github_url: githubUrl.trim() || null,
           linkedin_url: linkedinUrl.trim() || null,
+          portfolio_slug: normalizedSlug || null,
+          portfolio_is_public: portfolioIsPublic,
+          portfolio_updated_at: new Date().toISOString(),
         })
         .eq('id', session.user.id);
 
@@ -72,6 +93,8 @@ export default function ProfileScreen() {
     setBio(profile?.bio || '');
     setGithubUrl(profile?.github_url || '');
     setLinkedinUrl(profile?.linkedin_url || '');
+    setPortfolioSlug(profile?.portfolio_slug || '');
+    setPortfolioIsPublic(profile?.portfolio_is_public || false);
     setEditing(true);
   };
 
@@ -94,6 +117,62 @@ export default function ProfileScreen() {
             <Feather name="edit-2" size={16} color={DN.cyan} />
             <Text style={styles.editLabel}>Edit</Text>
           </TouchableOpacity>
+        )}
+      </View>
+
+      <SectionHeader title="Public Portfolio" icon="globe" />
+      <View style={styles.card}>
+        {editing ? (
+          <>
+            <Text style={styles.portfolioHint}>Your shareable address</Text>
+            <View style={styles.slugRow}>
+              <Text style={styles.slugPrefix}>/portfolio/</Text>
+              <TextInput
+                style={styles.slugInput}
+                value={portfolioSlug}
+                onChangeText={(value) => setPortfolioSlug(value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                placeholder="your-name"
+                placeholderTextColor={DN.textPlaceholder}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+            <TouchableOpacity
+              style={styles.visibilityRow}
+              onPress={() => setPortfolioIsPublic((current) => !current)}
+            >
+              <View style={[styles.visibilityToggle, portfolioIsPublic && styles.visibilityToggleActive]}>
+                <View style={[styles.visibilityKnob, portfolioIsPublic && styles.visibilityKnobActive]} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.visibilityTitle}>Publish portfolio</Text>
+                <Text style={styles.portfolioHint}>Only projects you explicitly mark public will appear.</Text>
+              </View>
+            </TouchableOpacity>
+          </>
+        ) : profile?.portfolio_is_public && profile.portfolio_slug ? (
+          <>
+            <Text style={styles.publicUrl}>/portfolio/{profile.portfolio_slug}</Text>
+            <Text style={[styles.portfolioHint, { marginTop: Space.sm }]}>Open this page in a browser, then choose “Print / Save PDF” to download your portfolio as a PDF.</Text>
+            <PrimaryButton
+              title="Open portfolio & PDF export"
+              icon="download"
+              variant="secondary"
+              onPress={() => router.push({ pathname: '/portfolio/[slug]', params: { slug: profile.portfolio_slug ?? '' } })}
+              style={{ marginTop: Space.md }}
+            />
+          </>
+        ) : (
+          <>
+            <Text style={styles.bioText}>Portfolio & PDF export are not set up yet. Choose a URL, publish your portfolio, and mark at least one project public.</Text>
+            <PrimaryButton
+              title="Set up portfolio & PDF export"
+              icon="settings"
+              variant="secondary"
+              onPress={startEditing}
+              style={{ marginTop: Space.md }}
+            />
+          </>
         )}
       </View>
 
@@ -373,6 +452,29 @@ const styles = StyleSheet.create({
     minHeight: 80,
     padding: 0,
   },
+  portfolioHint: {
+    color: DN.textMuted,
+    fontFamily: FontFamily.regular,
+    fontSize: FontSize.sm,
+    lineHeight: 18,
+  },
+  slugRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: Space.sm,
+    backgroundColor: DN.bgInput,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Space.sm,
+  },
+  slugPrefix: { color: DN.textMuted, fontFamily: FontFamily.mono, fontSize: FontSize.sm },
+  slugInput: { flex: 1, color: DN.textPrimary, fontFamily: FontFamily.mono, fontSize: FontSize.sm, paddingVertical: Space.sm },
+  visibilityRow: { flexDirection: 'row', alignItems: 'center', gap: Space.md, marginTop: Space.md },
+  visibilityToggle: { width: 42, height: 24, borderRadius: 12, backgroundColor: DN.bgElevated, padding: 3, borderWidth: 1, borderColor: DN.border },
+  visibilityToggleActive: { backgroundColor: DN.cyan, borderColor: DN.cyan },
+  visibilityKnob: { width: 16, height: 16, borderRadius: 8, backgroundColor: DN.textMuted },
+  visibilityKnobActive: { backgroundColor: DN.bg, alignSelf: 'flex-end' },
+  visibilityTitle: { color: DN.textPrimary, fontFamily: FontFamily.medium, fontSize: FontSize.md },
+  publicUrl: { color: DN.cyan, fontFamily: FontFamily.mono, fontSize: FontSize.sm },
 
   // Detail Rows
   detailRow: {

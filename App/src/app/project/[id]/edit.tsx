@@ -21,13 +21,19 @@ import {
 } from '@/constants/design-tokens';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { SkillTag } from '@/components/ui/SkillTag';
+import { TechAutocomplete } from '@/components/ui/TechAutocomplete';
+import { StatusSelector } from '@/components/ui/StatusSelector';
 import { supabase } from '@/lib/supabase';
+import { ProjectStatus } from '@/lib/types';
 
 type Project = {
   id: string;
   title: string;
   description: string | null;
   github_url: string | null;
+  status: ProjectStatus;
+  is_public: boolean;
+  portfolio_order: number;
 };
 
 type SkillCategory = 'language' | 'framework' | 'tool' | 'concept';
@@ -106,14 +112,26 @@ export default function EditProjectScreen() {
   const insets = useSafeAreaInsets();
 
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [project, setProject] = useState<Project | null>(null);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
-  const [techInput, setTechInput] = useState('');
+  const [status, setStatus] = useState<ProjectStatus>('active');
+  const [isPublic, setIsPublic] = useState(false);
+  const [portfolioOrder, setPortfolioOrder] = useState('0');
   const [techStack, setTechStack] = useState<string[]>([]);
+
+  const goBackOrToPortfolio = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace('/(tabs)/portfolio');
+  };
 
   useEffect(() => {
     const fetchProject = async () => {
@@ -124,7 +142,7 @@ export default function EditProjectScreen() {
         const [projectResult, skillsResult] = await Promise.all([
           supabase
             .from('projects')
-            .select('id, title, description, github_url')
+            .select('id, title, description, github_url, status, is_public, portfolio_order')
             .eq('id', id)
             .single(),
 
@@ -148,6 +166,9 @@ export default function EditProjectScreen() {
         setTitle(data.title || '');
         setDescription(data.description || '');
         setGithubUrl(data.github_url || '');
+        setStatus(data.status || 'active');
+        setIsPublic(data.is_public || false);
+        setPortfolioOrder(String(data.portfolio_order || 0));
 
         const skills = (skillsResult.data || [])
           .map((item: any) => {
@@ -171,20 +192,17 @@ export default function EditProjectScreen() {
     fetchProject();
   }, [id]);
 
-  const addTech = () => {
-    const tech = techInput.trim();
-
-    if (!tech) return;
+  const addTech = (tech: string) => {
+    const cleanTech = tech.trim();
+    if (!cleanTech) return;
 
     const exists = techStack.some(
-      (item) => item.toLowerCase() === tech.toLowerCase()
+      (item) => item.toLowerCase() === cleanTech.toLowerCase()
     );
 
     if (!exists) {
-      setTechStack((current) => [...current, tech]);
+      setTechStack((current) => [...current, cleanTech]);
     }
-
-    setTechInput('');
   };
 
   const removeTech = (tech: string) => {
@@ -211,6 +229,9 @@ export default function EditProjectScreen() {
           title: title.trim(),
           description: description.trim(),
           github_url: githubUrl.trim() || null,
+          status,
+          is_public: isPublic,
+          portfolio_order: Number.parseInt(portfolioOrder, 10) || 0,
           updated_at: new Date().toISOString(),
         })
         .eq('id', project.id);
@@ -326,7 +347,7 @@ export default function EditProjectScreen() {
       }
 
       // Database trigger handles user_skills aggregation
-      router.back();
+      goBackOrToPortfolio();
     } catch (error: any) {
       console.error('Error updating project:', error);
 
@@ -338,6 +359,60 @@ export default function EditProjectScreen() {
       setSaving(false);
     }
   };
+
+  const handleDelete = () => {
+    if (!project) return;
+    
+    Alert.alert(
+      'Delete Project',
+      `Are you sure you want to delete "${project.title}"? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              const {
+                data: { user },
+                error: userError,
+              } = await supabase.auth.getUser();
+
+              if (userError || !user) {
+                throw new Error('You must be signed in to delete a project.');
+              }
+
+              const { data: deletedProject, error } = await supabase
+                .from('projects')
+                .delete()
+                .eq('id', project.id)
+                .eq('user_id', user.id)
+                .select('id')
+                .maybeSingle();
+                
+              if (error) throw error;
+
+              if (!deletedProject) {
+                throw new Error('The project was not deleted. Please refresh and try again.');
+              }
+
+              router.replace({
+                pathname: '/(tabs)/portfolio',
+                params: { deleted: project.title },
+              });
+            } catch (err: any) {
+              console.error('Error deleting project:', err);
+              Alert.alert('Error', err?.message || 'Failed to delete project.');
+            } finally {
+              setDeleting(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
 
   if (loading) {
     return (
@@ -370,7 +445,7 @@ export default function EditProjectScreen() {
         <PrimaryButton
           title="Go Back"
           variant="ghost"
-          onPress={() => router.back()}
+          onPress={goBackOrToPortfolio}
           fullWidth={false}
           style={{ marginTop: Space.lg }}
         />
@@ -396,7 +471,7 @@ export default function EditProjectScreen() {
       {/* Back Button */}
       <TouchableOpacity
         style={styles.backBtn}
-        onPress={() => router.back()}
+        onPress={goBackOrToPortfolio}
         activeOpacity={0.7}
       >
         <Feather
@@ -452,6 +527,32 @@ export default function EditProjectScreen() {
           />
         </View>
 
+        {/* Status */}
+        <View style={styles.field}>
+          <Text style={styles.label}>
+            STATUS
+          </Text>
+          <StatusSelector value={status} onChange={setStatus} disabled={saving} />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>PORTFOLIO VISIBILITY</Text>
+          <TouchableOpacity style={styles.visibilityRow} onPress={() => setIsPublic((current) => !current)} disabled={saving}>
+            <Feather name={isPublic ? 'eye' : 'eye-off'} size={18} color={isPublic ? DN.cyan : DN.textMuted} />
+            <Text style={styles.visibilityText}>{isPublic ? 'Public — included in your published portfolio' : 'Private — visible only to you'}</Text>
+          </TouchableOpacity>
+          {isPublic && (
+            <TextInput
+              style={[styles.input, styles.orderInput]}
+              value={portfolioOrder}
+              onChangeText={setPortfolioOrder}
+              placeholder="Portfolio order (0 first)"
+              placeholderTextColor={DN.textPlaceholder}
+              keyboardType="number-pad"
+            />
+          )}
+        </View>
+
         {/* GitHub URL */}
         <View style={styles.field}>
           <Text style={styles.label}>
@@ -490,32 +591,7 @@ export default function EditProjectScreen() {
             TECH STACK
           </Text>
 
-          <View style={styles.techInputRow}>
-            <TextInput
-              style={[
-                styles.input,
-                styles.techInput,
-              ]}
-              value={techInput}
-              onChangeText={setTechInput}
-              placeholder="Add technology..."
-              placeholderTextColor={DN.textPlaceholder}
-              onSubmitEditing={addTech}
-              returnKeyType="done"
-            />
-
-            <TouchableOpacity
-              style={styles.addTechBtn}
-              onPress={addTech}
-              activeOpacity={0.7}
-            >
-              <Feather
-                name="plus"
-                size={18}
-                color={DN.cyan}
-              />
-            </TouchableOpacity>
-          </View>
+          <TechAutocomplete onAddSkill={addTech} />
 
           {techStack.length > 0 && (
             <View style={styles.techTags}>
@@ -558,9 +634,21 @@ export default function EditProjectScreen() {
       <PrimaryButton
         title="Cancel"
         variant="ghost"
-        onPress={() => router.back()}
+        onPress={goBackOrToPortfolio}
         style={{ marginTop: Space.sm }}
+        disabled={saving || deleting}
       />
+
+      <View style={styles.dangerZone}>
+        <PrimaryButton
+          title="Delete Project"
+          icon="trash-2"
+          variant="danger"
+          onPress={handleDelete}
+          loading={deleting}
+          disabled={saving || deleting}
+        />
+      </View>
 
       <View style={{ height: Space['3xl'] }} />
     </ScrollView>
@@ -667,26 +755,15 @@ const styles = StyleSheet.create({
     paddingTop: Space.md,
     textAlignVertical: 'top',
   },
+  visibilityRow: { flexDirection: 'row', alignItems: 'center', gap: Space.sm, paddingVertical: Space.sm },
+  visibilityText: { flex: 1, color: DN.textSecondary, fontFamily: FontFamily.regular, fontSize: FontSize.sm },
+  orderInput: { marginTop: Space.sm },
 
-  techInputRow: {
-    flexDirection: 'row',
-    gap: Space.sm,
-  },
-
-  techInput: {
-    flex: 1,
-    marginBottom: 0,
-  },
-
-  addTechBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.md,
-    backgroundColor: DN.cyanMuted,
-    borderWidth: 1,
-    borderColor: DN.borderFocus,
-    alignItems: 'center',
-    justifyContent: 'center',
+  dangerZone: {
+    marginTop: Space['3xl'],
+    paddingTop: Space.xl,
+    borderTopWidth: 1,
+    borderTopColor: DN.border,
   },
 
   techTags: {

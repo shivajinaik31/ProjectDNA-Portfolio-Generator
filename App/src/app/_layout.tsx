@@ -40,8 +40,9 @@ export default function RootLayout() {
     if (loading || !fontsLoaded) return;
 
     const inAuthGroup = segments[0] === '(auth)';
+    const isPublicPortfolio = segments[0] === 'portfolio';
 
-    if (!session && !inAuthGroup) {
+    if (!session && !inAuthGroup && !isPublicPortfolio) {
       // Not signed in → redirect to auth
       router.replace('/(auth)/login');
     } else if (session && inAuthGroup) {
@@ -67,6 +68,7 @@ export default function RootLayout() {
       >
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="portfolio" />
         <Stack.Screen
           name="project"
           options={{ animation: 'slide_from_right' }}
