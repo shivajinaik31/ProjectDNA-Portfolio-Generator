@@ -7,6 +7,8 @@ import {
   StatusBar,
   Platform,
   TouchableOpacity,
+  Image,
+  Alert,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -72,14 +74,69 @@ export default function HomeScreen() {
           .order('created_at', { ascending: false })
           .limit(5);
 
-        if (activitiesData) {
+        if (activitiesData && activitiesData.length > 0) {
           setActivities(activitiesData);
+        } else if (projectsData && projectsData.length > 0) {
+          setActivities(
+            projectsData.map((project) => ({
+              id: `project-${project.id}`,
+              message: `Project added: ${project.title}`,
+              created_at: project.created_at,
+            }))
+          );
+        } else {
+          setActivities([]);
         }
       }
 
       fetchData();
     }, [session?.user?.id])
   );
+
+  const handleDelete = (project: any) => {
+    Alert.alert(
+      'Delete Project',
+      `Are you sure you want to delete "${project.title}"? This action cannot be undone.`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const {
+                data: { user },
+              } = await supabase.auth.getUser();
+
+              if (!user) {
+                throw new Error('You must be signed in to delete a project.');
+              }
+
+              const { error } = await supabase
+                .from('projects')
+                .delete()
+                .eq('id', project.id)
+                .eq('user_id', user.id);
+
+              if (error) throw error;
+
+              setProjects((current) =>
+                current.filter((item) => item.id !== project.id)
+              );
+            } catch (error: any) {
+              Alert.alert(
+                'Error',
+                error?.message || 'Failed to delete project.'
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const displayName =
     profile?.full_name ||
@@ -171,19 +228,37 @@ export default function HomeScreen() {
           activeOpacity={0.8}
           onPress={() => router.push(`/project/${project.id}`)}
         >
+          {project.thumbnail_url ? (
+            <Image
+              source={{ uri: project.thumbnail_url }}
+              style={styles.projectThumbnail}
+              resizeMode="cover"
+            />
+          ) : null}
+
           <View style={styles.projectCardHeader}>
             <Text style={styles.projectTitle} numberOfLines={1}>
               {project.title}
             </Text>
-            <View
-              style={[
-                styles.statusBadge,
-                project.status === 'completed' && styles.statusCompleted,
-                project.status === 'active' && styles.statusActive,
-                project.status === 'archived' && styles.statusArchived,
-              ]}
-            >
-              <Text style={styles.statusText}>{project.status}</Text>
+            <View style={styles.headerActions}>
+              <View
+                style={[
+                  styles.statusBadge,
+                  project.status === 'completed' && styles.statusCompleted,
+                  project.status === 'active' && styles.statusActive,
+                  project.status === 'archived' && styles.statusArchived,
+                ]}
+              >
+                <Text style={styles.statusText}>{project.status}</Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => handleDelete(project)}
+                activeOpacity={0.7}
+              >
+                <Feather name="trash-2" size={16} color="#ff4d4f" />
+              </TouchableOpacity>
             </View>
           </View>
           <Text style={styles.projectDesc} numberOfLines={2}>
@@ -307,6 +382,13 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.medium,
     color: DN.textSecondary,
   },
+  
+  projectThumbnail: {
+    width: '100%',
+    height: 140,
+    borderRadius: Radius.md,
+    marginBottom: Space.md,
+  },
 
   // Project Card
   projectCard: {
@@ -336,6 +418,19 @@ const styles = StyleSheet.create({
     borderRadius: Radius.sm,
     backgroundColor: DN.bgElevated,
   },
+  headerActions: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: Space.sm,
+},
+
+deleteButton: {
+  width: 32,
+  height: 32,
+  borderRadius: Radius.md,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
   statusCompleted: {
     backgroundColor: DN.successBg,
   },

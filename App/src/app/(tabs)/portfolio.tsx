@@ -7,6 +7,8 @@ import {
   StatusBar,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -66,6 +68,51 @@ export default function PortfolioScreen() {
     filter === 'all'
       ? projects
       : projects.filter((p) => p.status === filter);
+      
+  const handleDelete = (project: any) => {
+    Alert.alert(
+      'Delete Project',
+      `Are you sure you want to delete "${project.title}"? This action cannot be undone.`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const {
+                data: { user },
+              } = await supabase.auth.getUser();
+
+              if (!user) {
+                throw new Error('You must be signed in to delete a project.');
+              }
+
+              const { error } = await supabase
+                .from('projects')
+                .delete()
+                .eq('id', project.id)
+                .eq('user_id', user.id);
+
+              if (error) throw error;
+
+              setProjects((current) =>
+                current.filter((item) => item.id !== project.id)
+              );
+            } catch (error: any) {
+              Alert.alert(
+                'Error',
+                error?.message || 'Failed to delete project.'
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const filters: { key: FilterStatus; label: string }[] = [
     { key: 'all', label: 'All' },
@@ -162,11 +209,20 @@ export default function PortfolioScreen() {
               activeOpacity={0.8}
               onPress={() => router.push(`/project/${project.id}`)}
             >
+
               <View style={styles.cardHeader}>
                 <View style={styles.cardHeaderLeft}>
-                  <View style={styles.projectIcon}>
-                    <Feather name="folder" size={18} color={DN.cyan} />
-                  </View>
+                  {project.thumbnail_url ? (
+                    <Image
+                      source={{ uri: project.thumbnail_url }}
+                      style={styles.projectIcon}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.projectIcon}>
+                      <Feather name="box" size={18} color={DN.cyan} />
+                    </View>
+                  )}
                   <View style={styles.cardTitleArea}>
                     <Text style={styles.projectTitle} numberOfLines={1}>
                       {project.title}
@@ -180,14 +236,25 @@ export default function PortfolioScreen() {
                     </Text>
                   </View>
                 </View>
-                <View
-                  style={[
-                    styles.statusDot,
-                    project.status === 'completed' && { backgroundColor: '#52c41a' },
-                    project.status === 'active' && { backgroundColor: DN.cyan },
-                    project.status === 'archived' && { backgroundColor: DN.textMuted },
-                  ]}
-                />
+
+                <View style={styles.headerActions}>
+                  <View
+                    style={[
+                      styles.statusDot,
+                      project.status === 'completed' && { backgroundColor: '#52c41a' },
+                      project.status === 'active' && { backgroundColor: DN.cyan },
+                      project.status === 'archived' && { backgroundColor: DN.textMuted },
+                    ]}
+                  />
+
+                  <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={() => handleDelete(project)}
+                    activeOpacity={0.7}
+                  >
+                    <Feather name="trash-2" size={16} color="#ff4d4f" />
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <Text style={styles.projectDesc} numberOfLines={2}>
@@ -342,6 +409,20 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     marginLeft: Space.sm,
+  },
+
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.sm,
+  },
+
+  deleteButton: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   projectDesc: {
     fontSize: FontSize.md,

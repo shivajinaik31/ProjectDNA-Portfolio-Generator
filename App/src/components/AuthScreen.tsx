@@ -340,6 +340,8 @@ export function AuthScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
+                onSubmitEditing={handleSubmit}
+                returnKeyType="done"
               />
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
                 <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#657b9c" />
@@ -361,6 +363,8 @@ export function AuthScreen() {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showPassword}
+                onSubmitEditing={handleSubmit}
+                returnKeyType="done"
               />
             </View>
           </View>

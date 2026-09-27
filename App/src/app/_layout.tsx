@@ -1,10 +1,11 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'react-native';
 import { useAuth } from '@/hooks/use-auth';
 import { DN } from '@/constants/design-tokens';
+import { ProjectSplash } from '@/components/ui/ProjectSplash';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -12,6 +13,8 @@ export default function RootLayout() {
   const { session, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const [showSplash, setShowSplash] = useState(true);
+  const [splashAnimationDone, setSplashAnimationDone] = useState(false);
 
   const [fontsLoaded] = useFonts({
     'Inter-Regular': require('@/assets/fonts/Inter-Regular.ttf'),
@@ -24,16 +27,20 @@ export default function RootLayout() {
     'JetBrainsMono-Bold': require('@/assets/fonts/JetBrainsMono-Bold.ttf'),
   });
 
-  // Hide splash screen once fonts + auth are ready
-  const onReady = useCallback(async () => {
-    if (fontsLoaded && !loading) {
-      await SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, loading]);
-
+  
+  // Hide native splash once fonts are ready
   useEffect(() => {
-    onReady();
-  }, [onReady]);
+    if (fontsLoaded) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded]);
+
+  // Hide custom splash only when app loading + animation are done
+  useEffect(() => {
+    if (fontsLoaded && !loading && splashAnimationDone) {
+      setShowSplash(false);
+    }
+  }, [fontsLoaded, loading, splashAnimationDone]);
 
   // Auth-gated navigation
   useEffect(() => {
@@ -51,10 +58,6 @@ export default function RootLayout() {
     }
   }, [session, loading, fontsLoaded, segments]);
 
-  // Don't render until ready
-  if (!fontsLoaded || loading) {
-    return null;
-  }
 
   return (
     <>
@@ -63,7 +66,7 @@ export default function RootLayout() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: DN.bg },
-          animation: 'fade',
+          animation: 'none',
         }}
       >
         <Stack.Screen name="(auth)" />
@@ -74,6 +77,11 @@ export default function RootLayout() {
           options={{ animation: 'slide_from_right' }}
         />
       </Stack>
+      {showSplash && (
+ <ProjectSplash
+  onFinish={() => setSplashAnimationDone(true)}
+/>
+)}
     </>
   );
 }

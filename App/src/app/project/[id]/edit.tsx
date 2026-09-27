@@ -1,36 +1,39 @@
-import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  StatusBar,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-} from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
+import { PrimaryButton } from '@/components/ui/PrimaryButton';
+import { SkillTag } from '@/components/ui/SkillTag';
+import { StatusSelector } from '@/components/ui/StatusSelector';
+import { TechAutocomplete } from '@/components/ui/TechAutocomplete';
+import * as ImagePicker from 'expo-image-picker';
 import {
   DN,
   FontFamily,
   FontSize,
-  Space,
   Radius,
+  Space,
 } from '@/constants/design-tokens';
-import { PrimaryButton } from '@/components/ui/PrimaryButton';
-import { SkillTag } from '@/components/ui/SkillTag';
-import { TechAutocomplete } from '@/components/ui/TechAutocomplete';
-import { StatusSelector } from '@/components/ui/StatusSelector';
 import { supabase } from '@/lib/supabase';
 import { ProjectStatus } from '@/lib/types';
+import { Feather } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import {
+  Alert,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  Image,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Project = {
   id: string;
   title: string;
   description: string | null;
   github_url: string | null;
+  thumbnail_url: string | null;
   status: ProjectStatus;
   is_public: boolean;
   portfolio_order: number;
@@ -42,61 +45,252 @@ const getSkillCategory = (skill: string): SkillCategory => {
   const name = skill.toLowerCase().trim();
 
   const languages = [
-    'javascript',
-    'typescript',
-    'python',
-    'java',
-    'c',
-    'c++',
-    'c#',
-    'dart',
-    'kotlin',
-    'swift',
-    'go',
-    'rust',
-    'php',
-    'ruby',
-    'sql',
+  'javascript',
+  'typescript',
+  'python',
+  'java',
+  'c',
+  'c++',
+  'c#',
+  'dart',
+  'kotlin',
+  'swift',
+  'go',
+  'rust',
+  'php',
+  'ruby',
+  'sql',
+  'r',
+  'scala',
+  'perl',
+  'lua',
+  'haskell',
+  'elixir',
+  'erlang',
+  'groovy',
+  'objective-c',
+  'objective-c++',
+  'f#',
+  'visual basic',
+  'matlab',
+  'assembly',
+  'fortran',
+  'cobol',
+  'solidity',
+  'zig',
+  'julia',
+  'bash',
+  'powershell',
   ];
 
   const frameworks = [
-    'react',
-    'react native',
-    'next.js',
-    'nextjs',
-    'angular',
-    'vue',
-    'nuxt',
-    'flutter',
-    'express',
-    'express.js',
-    'node.js',
-    'nodejs',
-    'spring',
-    'spring boot',
-    'django',
-    'laravel',
-    'nestjs',
-    'tailwind',
+     'react',
+  'react native',
+  'next.js',
+  'nextjs',
+  'vue',
+  'nuxt',
+  'angular',
+  'svelte',
+  'sveltekit',
+  'solid.js',
+  'solidjs',
+  'astro',
+  'remix',
+  'gatsby',
+  'ember.js',
+  'jquery',
+  'electron',
+  'expo',
+
+  // Node / Backend
+  'node.js',
+  'nodejs',
+  'express',
+  'express.js',
+  'nestjs',
+  'fastify',
+  'hono',
+  'koa',
+  'adonisjs',
+
+  // Python
+  'django',
+  'flask',
+  'fastapi',
+  'pyramid',
+  'tornado',
+  'streamlit',
+
+  // Java
+  'spring',
+  'spring boot',
+  'quarkus',
+  'micronaut',
+  'jakarta ee',
+
+  // .NET
+  '.net',
+  '.net core',
+  'asp.net',
+  'asp.net core',
+  'blazor',
+  'entity framework',
+
+  // PHP
+  'laravel',
+  'symfony',
+  'codeigniter',
+  'wordpress',
+
+  // Ruby
+  'ruby on rails',
+  'rails',
+  'sinatra',
+
+  // Mobile
+  'flutter',
+  'jetpack compose',
+  'android sdk',
+  'uikit',
+  'swiftui',
+  'ionic',
+  'cordova',
+
+  // C/C++
+  'qt',
+  'boost',
+  'wxwidgets',
+
+  // Rust / Go
+  'actix',
+  'axum',
+  'rocket',
+  'gin',
+  'fiber',
+  'echo',
+
+  // CSS / UI
+  'tailwind',
+  'tailwind css',
+  'bootstrap',
+  'material ui',
+  'mui',
+  'chakra ui',
+  'ant design',
+  'bulma',
+  'foundation',
   ];
 
   const tools = [
-    'firebase',
-    'supabase',
-    'mysql',
-    'postgresql',
-    'postgres',
-    'mongodb',
-    'redis',
-    'git',
-    'github',
-    'docker',
-    'aws',
-    'vercel',
-    'nginx',
-    'xampp',
-    'figma',
-    'postman',
+    // Databases
+  'firebase',
+  'supabase',
+  'mysql',
+  'postgresql',
+  'postgres',
+  'mongodb',
+  'sqlite',
+  'mariadb',
+  'redis',
+  'oracle',
+  'microsoft sql server',
+  'cassandra',
+  'dynamodb',
+  'neo4j',
+  'elasticsearch',
+
+  // Version control
+  'git',
+  'github',
+  'gitlab',
+  'bitbucket',
+
+  // Containers / DevOps
+  'docker',
+  'kubernetes',
+  'terraform',
+  'ansible',
+  'jenkins',
+  'github actions',
+  'gitlab ci',
+  'circleci',
+  'travis ci',
+  'helm',
+  'vagrant',
+
+  // Cloud
+  'aws',
+  'azure',
+  'google cloud',
+  'gcp',
+  'vercel',
+  'netlify',
+  'heroku',
+  'digitalocean',
+  'cloudflare',
+  'firebase hosting',
+
+  // Testing
+  'jest',
+  'vitest',
+  'mocha',
+  'chai',
+  'cypress',
+  'playwright',
+  'selenium',
+  'postman',
+  'insomnia',
+
+  // Build / Package
+  'npm',
+  'yarn',
+  'pnpm',
+  'bun',
+  'webpack',
+  'vite',
+  'rollup',
+  'babel',
+  'esbuild',
+
+  // UI / Design
+  'figma',
+  'adobe xd',
+  'sketch',
+
+  // API / Data
+  'graphql',
+  'apollo',
+  'rest api',
+  'swagger',
+  'openapi',
+  'grpc',
+
+  // AI / ML
+  'tensorflow',
+  'pytorch',
+  'keras',
+  'scikit-learn',
+  'opencv',
+  'hugging face',
+  'langchain',
+  'openai',
+
+  // Monitoring / Analytics
+  'sentry',
+  'datadog',
+  'grafana',
+  'prometheus',
+  'google analytics',
+
+  // Other
+  'nginx',
+  'apache',
+  'xampp',
+  'linux',
+  'postman',
+  'jira',
+  'notion',
   ];
 
   if (languages.includes(name)) return 'language';
@@ -119,11 +313,13 @@ export default function EditProjectScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
+  const [liveDemoUrl, setLiveDemoUrl] = useState('');
   const [status, setStatus] = useState<ProjectStatus>('active');
   const [isPublic, setIsPublic] = useState(false);
   const [portfolioOrder, setPortfolioOrder] = useState('0');
   const [techStack, setTechStack] = useState<string[]>([]);
-
+  const [thumbnailUri, setThumbnailUri] = useState<string | null>(null);
+  const [skills, setSkills] = useState<string[]>([]);
   const goBackOrToPortfolio = () => {
     if (router.canGoBack()) {
       router.back();
@@ -142,7 +338,7 @@ export default function EditProjectScreen() {
         const [projectResult, skillsResult] = await Promise.all([
           supabase
             .from('projects')
-            .select('id, title, description, github_url, status, is_public, portfolio_order')
+            .select('id, title, description, github_url, live_demo_url, thumbnail_url, status, is_public, portfolio_order')
             .eq('id', id)
             .single(),
 
@@ -166,6 +362,8 @@ export default function EditProjectScreen() {
         setTitle(data.title || '');
         setDescription(data.description || '');
         setGithubUrl(data.github_url || '');
+        setLiveDemoUrl(data.live_demo_url || '');
+        setThumbnailUri(data.thumbnail_url || null);
         setStatus(data.status || 'active');
         setIsPublic(data.is_public || false);
         setPortfolioOrder(String(data.portfolio_order || 0));
@@ -223,22 +421,26 @@ export default function EditProjectScreen() {
 
     try {
       // 1. Update project details
-      const { error: projectError } = await supabase
-        .from('projects')
-        .update({
-          title: title.trim(),
-          description: description.trim(),
-          github_url: githubUrl.trim() || null,
-          status,
-          is_public: isPublic,
-          portfolio_order: Number.parseInt(portfolioOrder, 10) || 0,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', project.id);
+     const { data: updatedProject, error: projectError } = await supabase
+     .from('projects')
+     .update({
+     title: title.trim(),
+     description: description.trim(),
+     github_url: githubUrl.trim() || null,
+     live_demo_url: liveDemoUrl.trim() || null,
+     status,
+     is_public: isPublic,
+      portfolio_order: Number.parseInt(portfolioOrder, 10) || 0,
+    updated_at: new Date().toISOString(),
+    })
+    .eq('id', project.id)
+    .select()
+    .single();
 
       if (projectError) {
         throw projectError;
       }
+      console.log('Updated project:', updatedProject);
 
       // 2. Normalize selected skills
       const skillNames = [
@@ -346,8 +548,60 @@ export default function EditProjectScreen() {
         }
       }
 
+      if (thumbnailUri && !thumbnailUri.startsWith('http')) {
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          throw new Error('You must be logged in to upload an image.');
+        }
+
+        const fileExt =
+          thumbnailUri.split('.').pop()?.toLowerCase() || 'jpg';
+
+        const fileName = `${user.id}/${project.id}-${Date.now()}.${fileExt}`;
+
+        const response = await fetch(thumbnailUri);
+        const arrayBuffer = await response.arrayBuffer();
+
+        const mimeType =
+          fileExt === 'png'
+            ? 'image/png'
+            : fileExt === 'webp'
+              ? 'image/webp'
+              : 'image/jpeg';
+
+        const { error: uploadError } = await supabase.storage
+          .from('project-images')
+          .upload(fileName, arrayBuffer, {
+            contentType: mimeType,
+            upsert: false,
+          });
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('project-images')
+          .getPublicUrl(fileName);
+
+        const { error: imageUpdateError } = await supabase
+          .from('projects')
+          .update({
+            thumbnail_url: publicUrlData.publicUrl,
+          })
+          .eq('id', project.id);
+
+        if (imageUpdateError) {
+          throw imageUpdateError;
+        }
+      }
+
       // Database trigger handles user_skills aggregation
-      goBackOrToPortfolio();
+      router.replace(`/project/${project.id}`);
     } catch (error: any) {
       console.error('Error updating project:', error);
 
@@ -526,6 +780,46 @@ export default function EditProjectScreen() {
             textAlignVertical="top"
           />
         </View>
+        {/* Project Image */}
+        <View style={styles.field}>
+          <Text style={styles.label}>
+            PROJECT IMAGE
+          </Text>
+
+          <TouchableOpacity
+            style={styles.imageButton}
+            onPress={async () => {
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'],
+                allowsEditing: true,
+                quality: 0.8,
+              });
+
+              if (!result.canceled) {
+                setThumbnailUri(result.assets[0].uri);
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            <Feather
+              name="image"
+              size={20}
+              color={DN.cyan}
+            />
+
+            <Text style={styles.imageButtonText}>
+              {thumbnailUri ? 'Change Image' : 'Choose Image'}
+            </Text>
+          </TouchableOpacity>
+
+          {thumbnailUri && (
+            <Image
+              source={{ uri: thumbnailUri }}
+              style={styles.previewImage}
+              resizeMode="cover"
+            />
+          )}
+        </View>
 
         {/* Status */}
         <View style={styles.field}>
@@ -583,6 +877,24 @@ export default function EditProjectScreen() {
               autoCorrect={false}
             />
           </View>
+        </View>
+ 
+        {/* Live Demo URL */}
+        <View style={styles.field}>
+          <Text style={styles.label}>
+            LIVE DEMO URL
+          </Text>
+
+          <TextInput
+            style={styles.input}
+            value={liveDemoUrl}
+            onChangeText={setLiveDemoUrl}
+            placeholder="https://your-demo-link.com"
+            placeholderTextColor={DN.textPlaceholder}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+          />
         </View>
 
         {/* Tech Stack */}
@@ -718,6 +1030,31 @@ const styles = StyleSheet.create({
     marginBottom: Space.lg,
   },
 
+
+  imageButton: {
+    height: 48,
+    borderWidth: 1,
+    borderColor: DN.borderLight,
+    borderRadius: Radius.md,
+    backgroundColor: DN.bgInput,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Space.sm,
+  },
+
+  imageButtonText: {
+    color: DN.cyan,
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.md,
+  },
+
+  previewImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: Radius.md,
+    marginTop: Space.md,
+  },
   label: {
     fontSize: FontSize.xs + 1,
     fontFamily: FontFamily.mono,

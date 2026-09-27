@@ -9,6 +9,7 @@ import {
   Linking,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -274,26 +275,61 @@ export default function ProjectDetailScreen() {
         <Text style={styles.backLabel}>Back</Text>
       </TouchableOpacity>
 
+
+      {/* Project Image */}
+      {project.thumbnail_url ? (
+        <Image
+          source={{ uri: project.thumbnail_url }}
+          style={{
+            width: '100%',
+            height: 200,
+            borderRadius: Radius.xl,
+            marginBottom: Space.xl,
+          }}
+          resizeMode="cover"
+        />
+      ) : null}
+
       {/* Project Header */}
       <View style={styles.headerCard}>
         <View style={styles.headerTop}>
-          <View style={styles.projectIcon}>
-            <Feather
-              name="folder"
-              size={24}
-              color={DN.cyan}
-            />
+          <View style={styles.titleRow}>
+            <View style={styles.projectIcon}>
+              <Feather
+                name="folder"
+                size={20}
+                color={DN.cyan}
+              />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.projectTitle}>
+                {project.title}
+              </Text>
+
+              <Text style={styles.projectDate}>
+                Updated{' '}
+                {new Date(project.updated_at).toLocaleDateString(
+                  'en-US',
+                  {
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric',
+                  }
+                )}
+              </Text>
+            </View>
           </View>
 
           <View
             style={[
               styles.statusBadge,
               project.status === 'completed' &&
-                styles.statusCompleted,
+              styles.statusCompleted,
               project.status === 'active' &&
-                styles.statusActive,
+              styles.statusActive,
               project.status === 'archived' &&
-                styles.statusArchived,
+              styles.statusArchived,
             ]}
           >
             <Text style={styles.statusText}>
@@ -301,22 +337,6 @@ export default function ProjectDetailScreen() {
             </Text>
           </View>
         </View>
-
-        <Text style={styles.projectTitle}>
-          {project.title}
-        </Text>
-
-        <Text style={styles.projectDate}>
-          Updated{' '}
-          {new Date(project.updated_at).toLocaleDateString(
-            'en-US',
-            {
-              month: 'long',
-              day: 'numeric',
-              year: 'numeric',
-            }
-          )}
-        </Text>
 
         <View style={styles.quickActions}>
           {project.status === 'active' && (
@@ -452,73 +472,84 @@ export default function ProjectDetailScreen() {
           </>
         )}
 
-      {/* GitHub Link */}
-      {project.github_url ? (
-        <>
-          <SectionHeader
-            title="Repository"
-            icon="github"
-          />
-
-          <TouchableOpacity
-            style={styles.card}
-            activeOpacity={0.8}
-            onPress={() =>
-              Linking.openURL(project.github_url)
-            }
-          >
-            <View style={styles.githubRow}>
+      {/* Project Links */}
+      {(project.github_url || project.live_demo_url) && (
+        <View style={styles.linkButtonsRow}>
+          {project.github_url && (
+            <TouchableOpacity
+              style={[
+                styles.linkButton,
+                styles.githubButton,
+                styles.linkButtonCompact,
+              ]}
+              activeOpacity={0.8}
+              onPress={() => Linking.openURL(project.github_url)}
+            >
               <Feather
                 name="github"
                 size={18}
-                color={DN.textSecondary}
+                color="#ffffff"
               />
 
-              <Text
-                style={styles.githubUrl}
-                numberOfLines={1}
-              >
-                {project.github_url}
+              <Text style={styles.linkButtonText}>
+                GitHub
               </Text>
 
               <Feather
                 name="external-link"
-                size={14}
-                color={DN.textMuted}
+                size={15}
+                color="#ffffff"
               />
-            </View>
-          </TouchableOpacity>
-        </>
-      ) : null}
+            </TouchableOpacity>
+          )}
 
-      {/* Metadata */}
-      <SectionHeader title="Metadata" icon="info" />
+          {project.live_demo_url && (
+            <TouchableOpacity
+              style={[
+                styles.linkButton,
+                styles.linkButtonCompact,
+              ]}
+              activeOpacity={0.8}
+              onPress={() => Linking.openURL(project.live_demo_url)}
+            >
+              <Feather
+                name="globe"
+                size={18}
+                color={DN.cyan}
+              />
+
+              <Text style={styles.linkButtonText}>
+                Live Demo
+              </Text>
+
+              <Feather
+                name="external-link"
+                size={15}
+                color={DN.cyan}
+              />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Project Information */}
+      <SectionHeader
+        title="Project Information"
+        icon="info"
+      />
 
       <View style={styles.card}>
         <MetaRow
           label="Created"
-          value={new Date(
-            project.created_at
-          ).toLocaleDateString()}
+          value={new Date(project.created_at).toLocaleDateString()}
         />
 
         <MetaRow
-          label="Updated"
-          value={new Date(
-            project.updated_at
-          ).toLocaleDateString()}
-        />
-
-        <MetaRow
-          label="Status"
-          value={project.status}
-        />
-
-        <MetaRow
-          label="ID"
-          value={project.id}
+          label="Last Updated"
+          value={new Date(project.updated_at).toLocaleDateString()}
         />
       </View>
+
 
       {/* Action Buttons */}
       <View style={styles.actions}>
@@ -628,7 +659,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.xl,
     borderWidth: 1,
     borderColor: DN.border,
-    padding: Space.xl,
+    padding: Space.lg,
     marginBottom: Space.xl,
   },
 
@@ -640,8 +671,8 @@ const styles = StyleSheet.create({
   },
 
   projectIcon: {
-    width: 48,
-    height: 48,
+    width: 42,
+    height: 42,
     borderRadius: Radius.lg,
     backgroundColor: DN.bgElevated,
     borderWidth: 1,
@@ -689,7 +720,12 @@ const styles = StyleSheet.create({
     color: DN.textMuted,
     marginTop: Space.xs,
   },
-
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: Space.md,
+  },
   quickActions: {
     flexDirection: 'row',
     gap: Space.md,
@@ -698,7 +734,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: DN.border,
   },
-  
+
   quickActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -783,6 +819,48 @@ const styles = StyleSheet.create({
     color: DN.cyan,
   },
 
+  linkButton: {
+    backgroundColor: DN.bgCard,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: DN.border,
+    paddingHorizontal: Space.base,
+    paddingVertical: Space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Space.xl,
+  },
+
+  githubButton: {
+    backgroundColor: '#000000',
+    borderColor: '#000000',
+  },
+
+  linkButtonLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.md,
+    flex: 1,
+  },
+
+  linkButtonText: {
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.medium,
+    color: DN.textPrimary,
+  },
+  linkButtonsRow: {
+    flexDirection: 'row',
+    gap: Space.sm,
+    marginBottom: Space.xl,
+  },
+
+  linkButtonCompact: {
+    flex: 1,
+    marginBottom: 0,
+  },
+
+  
   // GitHub
   githubRow: {
     flexDirection: 'row',

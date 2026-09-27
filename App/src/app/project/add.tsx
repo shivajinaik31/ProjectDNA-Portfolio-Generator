@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import {
   View,
   Text,
@@ -8,6 +9,7 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -109,11 +111,14 @@ export default function AddProjectScreen() {
   const insets = useSafeAreaInsets();
 
   const [saving, setSaving] = useState(false);
+  const [importingGitHub, setImportingGitHub] = useState(false);
 
   // Form state
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
+  const [liveDemoUrl, setLiveDemoUrl] = useState('');
+  const [thumbnailUri, setThumbnailUri] = useState<string | null>(null);
   const [status, setStatus] = useState<ProjectStatus>('active');
   const [isPublic, setIsPublic] = useState(false);
   const [portfolioOrder, setPortfolioOrder] = useState('0');
@@ -137,6 +142,126 @@ export default function AddProjectScreen() {
       current.filter((item) => item !== tech)
     );
   };
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setThumbnailUri(result.assets[0].uri);
+    }
+  };
+
+  const importGitHub = async () => {
+    if (!githubUrl.trim()) {
+      Alert.alert('GitHub URL', 'Please enter a GitHub repository URL first.');
+      return;
+    }
+
+    try {
+      setImportingGitHub(true);
+
+      const match = githubUrl.trim().match(
+        /github\.com\/([^/]+)\/([^/#?]+)/
+      );
+
+      if (!match) {
+        Alert.alert('Invalid URL', 'Please enter a valid GitHub repository URL.');
+        return;
+      }
+
+      const owner = match[1];
+      const repo = match[2].replace('.git', '');
+
+      const response = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}`,
+        {
+          headers: {
+            Accept: 'application/vnd.github+json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Repository not found');
+      }
+
+      const data = await response.json();
+
+      setTitle(data.name || '');
+      setGithubUrl(data.html_url || githubUrl);
+
+      // Get README
+      let readmeText = '';
+
+      const readmeResponse = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/readme`,
+        {
+          headers: {
+            Accept: 'application/vnd.github.raw+json',
+          },
+        }
+      );
+
+      if (readmeResponse.ok) {
+        readmeText = await readmeResponse.text();
+      }
+      // Try to find the first image in the README
+      const imageMatch = readmeText.match(/!\[.*?\]\((.*?)\)/);
+
+      if (imageMatch && imageMatch[1]) {
+        let imageUrl = imageMatch[1].trim();
+
+        // Convert relative GitHub image paths to raw GitHub URLs
+        if (imageUrl.startsWith('./')) {
+          imageUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${data.default_branch}/${imageUrl.substring(2)}`;
+        } else if (imageUrl.startsWith('/')) {
+          imageUrl = `https://github.com${imageUrl}`;
+        }
+
+        setThumbnailUri(imageUrl);
+      }
+
+      setDescription(
+        data.description ||
+        readmeText
+          .replace(/!\[.*?\]\(.*?\)/g, '')
+          .replace(/[#*`]/g, '')
+          .trim()
+          .slice(0, 1000)
+      );
+
+      // Get languages used in the repository
+      const languagesResponse = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/languages`,
+        {
+          headers: {
+            Accept: 'application/vnd.github+json',
+          },
+        }
+      );
+
+      if (languagesResponse.ok) {
+        const languagesData = await languagesResponse.json();
+
+        Object.keys(languagesData).forEach((language) => {
+          addTech(language);
+        });
+      }
+
+      Alert.alert('Success', 'GitHub repository details imported.');
+    } catch (error) {
+      Alert.alert(
+        'Import Failed',
+        'Could not fetch the GitHub repository.'
+      );
+    } finally {
+      setImportingGitHub(false);
+    }
+  };
+
 
   const handleSubmit = async () => {
     if (!title.trim()) {
@@ -170,6 +295,7 @@ export default function AddProjectScreen() {
           title: title.trim(),
           description: description.trim(),
           github_url: githubUrl.trim() || null,
+          live_demo_url: liveDemoUrl.trim() || null,
           status,
           is_public: isPublic,
           portfolio_order: Number.parseInt(portfolioOrder, 10) || 0,
@@ -179,6 +305,54 @@ export default function AddProjectScreen() {
 
       if (projectError) {
         throw projectError;
+      }
+
+      if (thumbnailUri) {
+        const fileExt =
+          thumbnailUri.split('.').pop()?.toLowerCase() || 'jpg';
+
+        const fileName = `${user.id}/${project.id}.${fileExt}`;
+
+        Alert.alert('Upload Debug', 'Starting image upload...');
+
+        const response = await fetch(thumbnailUri);
+        const arrayBuffer = await response.arrayBuffer();
+
+        Alert.alert('Upload Debug', 'Image converted successfully.');
+
+        const mimeType =
+          fileExt === 'png'
+            ? 'image/png'
+            : fileExt === 'webp'
+              ? 'image/webp'
+              : 'image/jpeg';
+
+        const { error: uploadError } = await supabase.storage
+          .from('project-images')
+          .upload(fileName, arrayBuffer, {
+            contentType: mimeType,
+            upsert: false,
+          });
+
+        if (uploadError) {
+            Alert.alert('Upload Error', uploadError.message);
+            throw uploadError;
+          }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('project-images')
+          .getPublicUrl(fileName);
+
+        const { error: imageUpdateError } = await supabase
+          .from('projects')
+          .update({
+            thumbnail_url: publicUrlData.publicUrl,
+          })
+          .eq('id', project.id);
+
+        if (imageUpdateError) {
+          throw imageUpdateError;
+        }
       }
 
       // No skills selected
@@ -353,6 +527,36 @@ export default function AddProjectScreen() {
           />
         </View>
 
+
+        {/* Project Image */}
+        <View style={styles.field}>
+          <Text style={styles.label}>PROJECT IMAGE</Text>
+
+          <TouchableOpacity
+            style={styles.imageButton}
+            onPress={pickImage}
+            activeOpacity={0.8}
+          >
+            <Feather
+              name="image"
+              size={20}
+              color={DN.cyan}
+            />
+
+            <Text style={styles.imageButtonText}>
+              {thumbnailUri ? 'Change Image' : 'Choose Image'}
+            </Text>
+          </TouchableOpacity>
+
+          {thumbnailUri && (
+            <Image
+              source={{ uri: thumbnailUri }}
+              style={styles.previewImage}
+            />
+          )}
+        </View>
+
+
         {/* GitHub URL */}
         <View style={styles.field}>
           <Text style={styles.label}>GITHUB REPOSITORY</Text>
@@ -381,6 +585,31 @@ export default function AddProjectScreen() {
               autoCorrect={false}
             />
           </View>
+            <TouchableOpacity
+            style={styles.importButton}
+            onPress={importGitHub}
+            disabled={importingGitHub}
+          >
+            <Text style={styles.importButtonText}>
+              {importingGitHub ? 'IMPORTING...' : 'IMPORT FROM GITHUB'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      
+
+        {/* Live Demo URL */}
+        <View style={styles.field}>
+          <Text style={styles.label}>LIVE DEMO URL</Text>
+
+          <TextInput
+            style={styles.input}
+            placeholder="https://your-demo-link.com"
+            value={liveDemoUrl}
+            onChangeText={setLiveDemoUrl}
+            autoCapitalize="none"
+            keyboardType="url"
+            returnKeyType="done"
+          />
         </View>
 
         {/* Status */}
@@ -540,7 +769,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: Space.md,
     height: 48,
   },
+  imageButton: {
+    height: 48,
+    borderWidth: 1,
+    borderColor: DN.borderLight,
+    borderRadius: Radius.md,
+    backgroundColor: DN.bgInput,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Space.sm,
+  },
 
+  imageButtonText: {
+    color: DN.cyan,
+    fontFamily: FontFamily.medium,
+    fontSize: FontSize.md,
+  },
+  importButton: {
+  height: 48,
+  borderWidth: 1,
+  borderColor: DN.cyan,
+  borderRadius: Radius.md,
+  backgroundColor: DN.bgInput,
+  alignItems: 'center',
+  justifyContent: 'center',
+  marginTop: Space.sm,
+},
+
+importButtonText: {
+  color: DN.cyan,
+  fontFamily: FontFamily.medium,
+  fontSize: FontSize.sm,
+},
+
+  previewImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: Radius.md,
+    marginTop: Space.md,
+  },
   textArea: {
     height: 120,
     paddingTop: Space.md,
