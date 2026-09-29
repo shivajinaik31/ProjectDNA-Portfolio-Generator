@@ -26,9 +26,14 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const [stats, setStats] = useState({ projectCount: 0, skillCount: 0, avgScore: 0 });
-  const [projects, setProjects] = useState<any[]>([]);
-  const [activities, setActivities] = useState<any[]>([]);
+const [stats, setStats] = useState({
+  projectCount: 0,
+  skillCount: 0,
+  avgScore: 0,
+});
+const [projects, setProjects] = useState<any[]>([]);
+const [activities, setActivities] = useState<any[]>([]);
+const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -37,6 +42,17 @@ export default function HomeScreen() {
 
       async function fetchData() {
         // Fetch Stats
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (user) {
+          setAvatarUrl(
+            user.user_metadata?.avatar_url ||
+            user.user_metadata?.picture ||
+            null
+          );
+        }
         const { data: statsData } = await supabase
           .from('user_dashboard_stats')
           .select('*')
@@ -143,11 +159,6 @@ export default function HomeScreen() {
     session?.user?.user_metadata?.full_name ||
     session?.user?.email?.split('@')[0] ||
     'User';
-  const avatarUrl =
-    profile?.avatar_url ||
-    session?.user?.user_metadata?.avatar_url ||
-    session?.user?.user_metadata?.picture ||
-    null;
 
   return (
     <ScrollView
@@ -211,6 +222,17 @@ export default function HomeScreen() {
             <Feather name="activity" size={20} color="#52c41a" />
           </View>
           <Text style={styles.quickLabel}>Skill DNA</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickAction}
+          activeOpacity={0.8}
+          onPress={() => router.push('/resume-builder')}
+        >
+          <View style={[styles.quickIconBox, { backgroundColor: '#00c3e4' + '1a' }]}>
+            <Feather name="file-text" size={20} color={DN.cyan} />
+          </View>
+          <Text style={styles.quickLabel}>AI Resume</Text>
         </TouchableOpacity>
       </View>
 
@@ -355,20 +377,22 @@ const styles = StyleSheet.create({
   },
 
   // Quick Actions
-  quickActions: {
-    flexDirection: 'row',
-    gap: Space.sm,
-    marginBottom: Space.xl,
-  },
-  quickAction: {
-    flex: 1,
-    backgroundColor: DN.bgCard,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: DN.border,
-    padding: Space.md,
-    alignItems: 'center',
-  },
+quickActions: {
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  gap: Space.sm,
+  marginBottom: Space.xl,
+},
+
+quickAction: {
+  width: '48%',
+  backgroundColor: DN.bgCard,
+  borderRadius: Radius.lg,
+  borderWidth: 1,
+  borderColor: DN.border,
+  padding: Space.md,
+  alignItems: 'center',
+},
   quickIconBox: {
     width: 40,
     height: 40,
@@ -382,7 +406,6 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.medium,
     color: DN.textSecondary,
   },
-  
   projectThumbnail: {
     width: '100%',
     height: 140,

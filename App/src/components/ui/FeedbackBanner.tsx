@@ -19,10 +19,10 @@ const config = {
   },
   success: {
     icon: 'check-circle' as const,
-    iconColor: DN.success,
-    bg: DN.successBg,
-    border: DN.successBorder,
-    text: DN.successText,
+    iconColor: DN.cyan,
+    bg: DN.cyanDark,
+    border: DN.borderFocus,
+    text: DN.cyan,
   },
   warning: {
     icon: 'alert-triangle' as const,

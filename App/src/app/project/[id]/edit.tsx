@@ -637,17 +637,25 @@ export default function EditProjectScreen() {
                 throw new Error('You must be signed in to delete a project.');
               }
 
-              const { data: deletedProject, error } = await supabase
+              const { error } = await supabase
                 .from('projects')
                 .delete()
                 .eq('id', project.id)
-                .eq('user_id', user.id)
-                .select('id')
-                .maybeSingle();
+                .eq('user_id', user.id);
                 
               if (error) throw error;
 
-              if (!deletedProject) {
+              const { data: remainingProject, error: verifyError } =
+                await supabase
+                  .from('projects')
+                  .select('id')
+                  .eq('id', project.id)
+                  .eq('user_id', user.id)
+                  .maybeSingle();
+
+              if (verifyError) throw verifyError;
+
+              if (remainingProject) {
                 throw new Error('The project was not deleted. Please refresh and try again.');
               }
 

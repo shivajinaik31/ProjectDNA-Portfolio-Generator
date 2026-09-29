@@ -52,12 +52,8 @@ export default function RootLayout() {
     if (!session && !inAuthGroup && !isPublicPortfolio) {
       // Not signed in → redirect to auth
       router.replace('/(auth)/login');
-    } else if (session && inAuthGroup) {
-      // Signed in → redirect to main tabs
-      router.replace('/(tabs)');
     }
   }, [session, loading, fontsLoaded, segments]);
-
 
   return (
     <>
@@ -71,7 +67,9 @@ export default function RootLayout() {
       >
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="profile-setup" />
         <Stack.Screen name="portfolio" />
+        <Stack.Screen name="resume-builder" />
         <Stack.Screen
           name="project"
           options={{ animation: 'slide_from_right' }}

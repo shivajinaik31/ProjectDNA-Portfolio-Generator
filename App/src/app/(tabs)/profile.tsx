@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import {
   View,
   Text,
@@ -7,7 +8,6 @@ import {
   StatusBar,
   TouchableOpacity,
   TextInput,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -16,6 +16,7 @@ import { DN, FontFamily, FontSize, Space, Radius } from '@/constants/design-toke
 import { AvatarDisplay } from '@/components/ui/AvatarDisplay';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { SectionHeader } from '@/components/ui/SectionHeader';
+import { FeedbackBanner } from '@/components/ui/FeedbackBanner';
 import { useAuth } from '@/hooks/use-auth';
 import { supabase } from '@/lib/supabase';
 
@@ -25,6 +26,11 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [newAvatarUri, setNewAvatarUri] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{
+    type: 'error' | 'success';
+    message: string;
+  } | null>(null);
 
   // Editable fields
   const [fullName, setFullName] = useState(profile?.full_name || '');
@@ -51,24 +57,86 @@ export default function ProfileScreen() {
     null;
   const provider = session?.user?.app_metadata?.provider || 'email';
 
+  const pickAvatar = async () => {
+    setFeedback(null);
+
+    const permission =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      setFeedback({
+        type: 'error',
+        message: 'Photo access is required to change your profile image.',
+      });
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setNewAvatarUri(result.assets[0].uri);
+      setFeedback({
+        type: 'success',
+        message: 'New profile image selected. Save changes to upload it.',
+      });
+    }
+  };
+
+  const uploadAvatar = async () => {
+    if (!newAvatarUri || !session?.user) return null;
+
+    const response = await fetch(newAvatarUri);
+    const arrayBuffer = await response.arrayBuffer();
+    const filePath = `${session.user.id}/profile-${Date.now()}.jpg`;
+
+    const { error } = await supabase.storage
+      .from('profile-images')
+      .upload(filePath, arrayBuffer, {
+        contentType: 'image/jpeg',
+        upsert: false,
+      });
+
+    if (error) {
+      throw new Error(`Profile image upload failed: ${error.message}`);
+    }
+
+    return supabase.storage
+      .from('profile-images')
+      .getPublicUrl(filePath).data.publicUrl;
+  };
+
   const handleSave = async () => {
     if (!session?.user) return;
     const normalizedSlug = portfolioSlug.trim().toLowerCase();
     if (normalizedSlug && !/^[a-z0-9-]{3,40}$/.test(normalizedSlug)) {
-      Alert.alert('Invalid portfolio URL', 'Use 3–40 lowercase letters, numbers, or hyphens.');
+      setFeedback({
+        type: 'error',
+        message: 'Use 3–40 lowercase letters, numbers, or hyphens.',
+      });
       return;
     }
     if (portfolioIsPublic && !normalizedSlug) {
-      Alert.alert('Portfolio URL required', 'Choose a portfolio URL before publishing.');
+      setFeedback({
+        type: 'error',
+        message: 'Choose a portfolio URL before publishing.',
+      });
       return;
     }
     setSaving(true);
+    setFeedback(null);
     try {
+      const avatarUrl = await uploadAvatar();
       const { error } = await supabase
         .from('users')
         .update({
           full_name: fullName.trim(),
           bio: bio.trim(),
+          avatar_url: avatarUrl || profile?.avatar_url || null,
           github_url: githubUrl.trim() || null,
           linkedin_url: linkedinUrl.trim() || null,
           portfolio_slug: normalizedSlug || null,
@@ -77,12 +145,21 @@ export default function ProfileScreen() {
         })
         .eq('id', session.user.id);
 
-      if (error) throw error;
+      if (error) {
+        throw new Error(`Profile update failed: ${error.message}`);
+      }
       await refreshProfile();
       setEditing(false);
-      Alert.alert('Success', 'Profile updated successfully.');
+      setNewAvatarUri(null);
+      setFeedback({
+        type: 'success',
+        message: 'Profile updated successfully.',
+      });
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to update profile.');
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Failed to update profile.',
+      });
     } finally {
       setSaving(false);
     }
@@ -95,6 +172,8 @@ export default function ProfileScreen() {
     setLinkedinUrl(profile?.linkedin_url || '');
     setPortfolioSlug(profile?.portfolio_slug || '');
     setPortfolioIsPublic(profile?.portfolio_is_public || false);
+    setNewAvatarUri(null);
+    setFeedback(null);
     setEditing(true);
   };
 
@@ -108,6 +187,13 @@ export default function ProfileScreen() {
       showsVerticalScrollIndicator={false}
     >
       <StatusBar barStyle="light-content" backgroundColor={DN.bg} />
+
+      {feedback && (
+        <FeedbackBanner
+          type={feedback.type}
+          message={feedback.message}
+        />
+      )}
 
       {/* Header */}
       <View style={styles.header}>
@@ -178,7 +264,28 @@ export default function ProfileScreen() {
 
       {/* Profile Card */}
       <View style={styles.profileCard}>
-        <AvatarDisplay uri={avatarUrl} name={displayName} size="xl" />
+        {editing ? (
+          <TouchableOpacity
+            style={styles.avatarEditButton}
+            onPress={pickAvatar}
+            activeOpacity={0.8}
+          >
+            <AvatarDisplay
+              uri={newAvatarUri || avatarUrl}
+              name={displayName}
+              size="xl"
+            />
+            <View style={styles.avatarEditBadge}>
+              <Feather name="camera" size={14} color={DN.bg} />
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <AvatarDisplay uri={avatarUrl} name={displayName} size="xl" />
+        )}
+
+        {editing && (
+          <Text style={styles.avatarHint}>Tap the image to change it</Text>
+        )}
         <Text style={styles.name}>{displayName}</Text>
         <Text style={styles.email}>{session?.user?.email}</Text>
 
@@ -383,6 +490,28 @@ const styles = StyleSheet.create({
     padding: Space.xl,
     alignItems: 'center',
     marginBottom: Space.xl,
+  },
+  avatarEditButton: {
+    position: 'relative',
+  },
+  avatarEditBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: 0,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: DN.cyan,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: DN.bgCard,
+  },
+  avatarHint: {
+    color: DN.cyan,
+    fontSize: FontSize.xs,
+    fontFamily: FontFamily.regular,
+    marginTop: Space.sm,
   },
   name: {
     fontSize: FontSize.xl,

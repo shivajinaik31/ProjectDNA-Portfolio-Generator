@@ -162,19 +162,27 @@ export default function ProjectDetailScreen() {
               }
 
               // Related records are removed by the database's ON DELETE CASCADE
-              // constraints. Deleting them from the client first can leave partial
-              // data behind when an RLS policy prevents one of those requests.
-              const { data: deletedProject, error } = await supabase
+              // constraints. Do not request RETURNING data here; that couples
+              // deletion to a separate SELECT policy.
+              const { error } = await supabase
                 .from('projects')
                 .delete()
                 .eq('id', project.id)
-                .eq('user_id', user.id)
-                .select('id')
-                .maybeSingle();
+                .eq('user_id', user.id);
                 
               if (error) throw error;
 
-              if (!deletedProject) {
+              const { data: remainingProject, error: verifyError } =
+                await supabase
+                  .from('projects')
+                  .select('id')
+                  .eq('id', project.id)
+                  .eq('user_id', user.id)
+                  .maybeSingle();
+
+              if (verifyError) throw verifyError;
+
+              if (remainingProject) {
                 throw new Error('The project was not deleted. Please refresh and try again.');
               }
               

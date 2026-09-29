@@ -313,12 +313,12 @@ export default function AddProjectScreen() {
 
         const fileName = `${user.id}/${project.id}.${fileExt}`;
 
-        Alert.alert('Upload Debug', 'Starting image upload...');
+        
 
         const response = await fetch(thumbnailUri);
         const arrayBuffer = await response.arrayBuffer();
 
-        Alert.alert('Upload Debug', 'Image converted successfully.');
+        
 
         const mimeType =
           fileExt === 'png'
