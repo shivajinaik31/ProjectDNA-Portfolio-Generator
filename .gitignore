@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+App/node_modules/
+
+# Expo and build output
+App/.expo/
+App/dist/
+App/web-build/
+App/android/
+App/ios/
+
+# Local environment files
+.env
+.env.*
+App/.env
+App/.env.*
+
+# TypeScript and debug output
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db

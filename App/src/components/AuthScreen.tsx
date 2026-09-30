@@ -9,19 +9,24 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Image,
 } from 'react-native';
 import { Feather, FontAwesome } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
+import { router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker'
 import { performOAuthSignIn, supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 export function AuthScreen() {
-  // Mode: 'signin' | 'register'
-  const [mode, setMode] = useState<'signin' | 'register'>('signin');
+  // Mode: 'signin' | 'register' | 'forgot'
+  const [mode, setMode] = useState<'signin' | 'register' | 'forgot'>('signin');
 
   // Form State
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [profileImage, setProfileImage] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<'google' | 'github' | null>(null);
@@ -35,9 +40,133 @@ export function AuthScreen() {
     setSuccessMessage(null);
   };
 
-  const handleModeSwitch = (newMode: 'signin' | 'register') => {
+  const handleModeSwitch = (newMode: 'signin' | 'register' | 'forgot') => {
     setMode(newMode);
     clearFeedback();
+  };
+
+  const pickProfileImage = async () => {
+    const permission =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert(
+        'Permission Required',
+        'Please allow access to your photos to select a profile picture.'
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+
+
+    if (!result.canceled) {
+      setProfileImage(result.assets[0].uri);
+    }
+  };
+
+const uploadProfileImage = async (userId: string) => {
+  console.log('PROFILE IMAGE URI:', profileImage);
+
+  if (!profileImage) {
+    console.log('NO PROFILE IMAGE SELECTED');
+    return null;
+  }
+
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      console.log('NO ACTIVE SESSION FOR IMAGE UPLOAD');
+      return null;
+    }
+
+    console.log('IMAGE UPLOAD SESSION USER:', session.user.id);
+
+    const response = await fetch(profileImage);
+    const arrayBuffer = await response.arrayBuffer();
+
+    const filePath = `${userId}/profile.jpg`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('profile-images')
+      .upload(filePath, arrayBuffer, {
+        contentType: 'image/jpeg',
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.log('UPLOAD ERROR:', uploadError);
+      throw uploadError;
+    }
+
+    console.log('PROFILE IMAGE UPLOADED:', filePath);
+
+    const { data } = supabase.storage
+      .from('profile-images')
+      .getPublicUrl(filePath);
+
+    console.log('PROFILE IMAGE URL:', data.publicUrl);
+
+    return data.publicUrl;
+  } catch (error) {
+    console.log('PROFILE IMAGE UPLOAD FAILED:', error);
+    return null;
+  }
+};
+
+  // Handle Password Reset Request via Supabase Auth
+  const handleResetPassword = async () => {
+    clearFeedback();
+
+    if (!isSupabaseConfigured()) {
+      const msg = 'Supabase credentials missing! Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in your .env file and restart your server.';
+      setErrorMessage(msg);
+      Alert.alert('Configuration Required', msg);
+      return;
+    }
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setErrorMessage('Please enter your email address to reset your password.');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setErrorMessage('Please enter a valid email address.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const redirectUrl = Linking.createURL('/auth/callback');
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: redirectUrl,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      const msg = `Password reset instructions sent to ${trimmedEmail}. Please check your inbox.`;
+      setSuccessMessage(msg);
+      Alert.alert('Reset Link Sent', msg);
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Failed to send password reset email. Please try again.';
+      setErrorMessage(errorMsg);
+      Alert.alert('Reset Failed', errorMsg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Handle Email / Password Form Submit
@@ -91,6 +220,8 @@ export function AuthScreen() {
         const welcomeMsg = `Welcome back, ${data.user?.email}!`;
         setSuccessMessage(welcomeMsg);
         Alert.alert('Sign In Successful', welcomeMsg);
+
+        router.replace('/(tabs)');
       } else {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
@@ -103,13 +234,33 @@ export function AuthScreen() {
         });
 
         if (error) throw error;
-
         if (data.session) {
-          const succMsg = `Account created successfully! Welcome, ${data.user?.email}!`;
-          setSuccessMessage(succMsg);
-          Alert.alert('Registration Successful', succMsg);
+          console.log('SIGNUP SUCCESS - SESSION EXISTS');
+          console.log('USER ID:', data.user?.id);
+
+          if (data.user && profileImage) {
+            const imageUrl = await uploadProfileImage(data.user.id);
+
+            if (imageUrl) {
+              const { error: metadataError } = await supabase.auth.updateUser({
+                data: {
+                  avatar_url: imageUrl,
+                },
+              });
+
+              if (metadataError) {
+                console.log('Profile image metadata error:', metadataError);
+              }
+            }
+          }
+
+          router.replace('/profile-setup');
         } else if (data.user && !data.session) {
-          const infoMsg = 'Account created! If email confirmation is enabled in your Supabase project, please check your email inbox to verify your account.';
+          console.log('USER CREATED BUT NO SESSION');
+
+          const infoMsg =
+            'Account created! Please check your account before continuing.';
+
           setSuccessMessage(infoMsg);
           Alert.alert('Check Your Email', infoMsg);
         }
@@ -163,15 +314,13 @@ export function AuthScreen() {
       {/* Brand Header */}
       <View style={styles.headerSection}>
         <View style={styles.logoBadge}>
-          <Feather name="box" size={24} color="#00c3e4" />
+          <Image
+            source={require('../../assets/images/icon.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
         </View>
-        <View style={styles.titleRow}>
-          <Text style={styles.brandTitle}>PROJECTDNA</Text>
-          <View style={styles.versionBadge}>
-            <Text style={styles.versionText}>v1.4</Text>
-          </View>
-        </View>
-        <Text style={styles.subtitle}>Build your professional profile.</Text>
+        <Text style={styles.brandTitle}>PROJECTDNA</Text>
       </View>
 
       {/* Segmented Mode Switcher (Sign In vs Register) */}
@@ -219,28 +368,77 @@ export function AuthScreen() {
 
       {successMessage && (
         <View style={styles.successBox}>
-          <Feather name="check-circle" size={16} color="#52c41a" style={{ marginRight: 8 }} />
+          <Feather name="check-circle" size={16} color="#00c3e4" style={{ marginRight: 8 }} />
           <Text style={styles.successBoxText}>{successMessage}</Text>
         </View>
       )}
 
       {/* Main Auth Form Card */}
       <View style={styles.formCard}>
+
         {/* Register Only: Full Name */}
         {mode === 'register' && (
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>FULL NAME</Text>
-            <View style={styles.inputWrapper}>
-              <Feather name="user" size={18} color="#657b9c" style={styles.fieldIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="Shivaji Bhosale"
-                placeholderTextColor="#475873"
-                value={fullName}
-                onChangeText={setFullName}
-                autoCapitalize="words"
-              />
+          <View>
+            <View style={styles.profileImageSection}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={styles.profileImageButton}
+                onPress={pickProfileImage}
+              >
+                {profileImage ? (
+                  <Image
+                    source={{ uri: profileImage }}
+                    style={styles.profileImage}
+                  />
+                ) : (
+                  <>
+                    <Feather
+                      name="camera"
+                      size={22}
+                      color="#00c3e4"
+                    />
+                    <Text style={styles.addPhotoText}>Add Photo</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <Text style={styles.photoHint}>
+                Profile picture
+              </Text>
             </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>FULL NAME</Text>
+
+              <View style={styles.inputWrapper}>
+                <Feather
+                  name="user"
+                  size={18}
+                  color="#657b9c"
+                  style={styles.fieldIcon}
+                />
+
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Shivaji Bhosale"
+                  placeholderTextColor="#475873"
+                  value={fullName}
+                  onChangeText={setFullName}
+                  autoCapitalize="words"
+                />
+              </View>
+            </View>
+          </View>
+        )}
+
+        {mode === 'forgot' && (
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ color: '#ffffff', fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
+              Reset Password
+            </Text>
+            <Text style={{ color: '#8ba1be', fontSize: 13, lineHeight: 18 }}>
+              Enter your account email to receive a password reset link.
+            </Text>
           </View>
         )}
 
@@ -263,30 +461,34 @@ export function AuthScreen() {
         </View>
 
         {/* Password Input */}
-        <View style={styles.inputGroup}>
-          <View style={styles.labelRow}>
-            <Text style={styles.inputLabel}>PASSKEY / PASSWORD</Text>
-            {mode === 'signin' && (
-              <TouchableOpacity onPress={() => Alert.alert('Reset Password', 'Enter email address to receive reset link.')}>
-                <Text style={styles.forgotLink}>Forgot password?</Text>
+        {mode !== 'forgot' && (
+          <View style={styles.inputGroup}>
+            <View style={styles.labelRow}>
+              <Text style={styles.inputLabel}>PASSKEY / PASSWORD</Text>
+              {mode === 'signin' && (
+                <TouchableOpacity onPress={() => handleModeSwitch('forgot')}>
+                  <Text style={styles.forgotLink}>Forgot password?</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <View style={styles.inputWrapper}>
+              <Feather name="lock" size={18} color="#657b9c" style={styles.fieldIcon} />
+              <TextInput
+                style={styles.textInput}
+                placeholder="••••••••••••"
+                placeholderTextColor="#475873"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                onSubmitEditing={handleSubmit}
+                returnKeyType="done"
+              />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+                <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#657b9c" />
               </TouchableOpacity>
-            )}
+            </View>
           </View>
-          <View style={styles.inputWrapper}>
-            <Feather name="lock" size={18} color="#657b9c" style={styles.fieldIcon} />
-            <TextInput
-              style={styles.textInput}
-              placeholder="••••••••••••"
-              placeholderTextColor="#475873"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-            />
-            <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
-              <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#657b9c" />
-            </TouchableOpacity>
-          </View>
-        </View>
+        )}
 
         {/* Register Only: Confirm Password */}
         {mode === 'register' && (
@@ -301,6 +503,8 @@ export function AuthScreen() {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showPassword}
+                onSubmitEditing={handleSubmit}
+                returnKeyType="done"
               />
             </View>
           </View>
@@ -310,7 +514,7 @@ export function AuthScreen() {
         <TouchableOpacity
           activeOpacity={0.85}
           style={styles.submitBtn}
-          onPress={handleSubmit}
+          onPress={mode === 'forgot' ? handleResetPassword : handleSubmit}
           disabled={loading}
         >
           {loading ? (
@@ -318,75 +522,86 @@ export function AuthScreen() {
           ) : (
             <View style={styles.btnContentRow}>
               <Text style={styles.submitBtnText}>
-                {mode === 'signin' ? 'Sign In' : 'Create Account'}
+                {mode === 'signin'
+                  ? 'Sign In'
+                  : mode === 'register'
+                  ? 'Create Account'
+                  : 'Send Reset Link'}
               </Text>
-              <Feather name="arrow-right" size={18} color="#070d19" style={{ marginLeft: 6 }} />
+              <Feather
+                name={mode === 'forgot' ? 'send' : 'arrow-right'}
+                size={18}
+                color="#070d19"
+                style={{ marginLeft: 6 }}
+              />
             </View>
           )}
         </TouchableOpacity>
 
         {/* Toggle Mode Footer */}
         <View style={styles.toggleFooter}>
-          <Text style={styles.toggleText}>
-            {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
-          </Text>
-          <TouchableOpacity onPress={() => handleModeSwitch(mode === 'signin' ? 'register' : 'signin')}>
-            <Text style={styles.toggleLink}>
-              {mode === 'signin' ? 'Create an account' : 'Sign in'}
-            </Text>
-          </TouchableOpacity>
+          {mode === 'forgot' ? (
+            <>
+              <Text style={styles.toggleText}>Remember your password? </Text>
+              <TouchableOpacity onPress={() => handleModeSwitch('signin')}>
+                <Text style={styles.toggleLink}>Back to Sign In</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.toggleText}>
+                {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+              </Text>
+              <TouchableOpacity onPress={() => handleModeSwitch(mode === 'signin' ? 'register' : 'signin')}>
+                <Text style={styles.toggleLink}>
+                  {mode === 'signin' ? 'Create an account' : 'Sign in'}
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </View>
 
       {/* Social OAuth Provider Buttons */}
-      <View style={styles.providersSection}>
-        {/* Google Provider Button */}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          style={styles.providerCyanBtn}
-          onPress={() => handleOAuth('google')}
-          disabled={socialLoading !== null}
-        >
-          {socialLoading === 'google' ? (
-            <ActivityIndicator color="#070d19" />
-          ) : (
-            <View style={styles.providerBtnContent}>
-              <FontAwesome name="google" size={18} color="#070d19" style={styles.providerIcon} />
-              <Text style={styles.providerCyanBtnText}>Continue with Google</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+      {mode !== 'forgot' && (
+        <View style={styles.providersSection}>
+          {/* Google Provider Button */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.providerCyanBtn}
+            onPress={() => handleOAuth('google')}
+            disabled={socialLoading !== null}
+          >
+            {socialLoading === 'google' ? (
+              <ActivityIndicator color="#070d19" />
+            ) : (
+              <View style={styles.providerBtnContent}>
+                <FontAwesome name="google" size={18} color="#070d19" style={styles.providerIcon} />
+                <Text style={styles.providerCyanBtnText}>Continue with Google</Text>
+              </View>
+            )}
+          </TouchableOpacity>
 
-        {/* GitHub Provider Button */}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          style={styles.providerCyanBtn}
-          onPress={() => handleOAuth('github')}
-          disabled={socialLoading !== null}
-        >
-          {socialLoading === 'github' ? (
-            <ActivityIndicator color="#070d19" />
-          ) : (
-            <View style={styles.providerBtnContent}>
-              <FontAwesome name="github" size={20} color="#070d19" style={styles.providerIcon} />
-              <Text style={styles.providerCyanBtnText}>Continue with GitHub</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
+          {/* GitHub Provider Button */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.providerCyanBtn}
+            onPress={() => handleOAuth('github')}
+            disabled={socialLoading !== null}
+          >
+            {socialLoading === 'github' ? (
+              <ActivityIndicator color="#070d19" />
+            ) : (
+              <View style={styles.providerBtnContent}>
+                <FontAwesome name="github" size={20} color="#070d19" style={styles.providerIcon} />
+                <Text style={styles.providerCyanBtnText}>Continue with GitHub</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Bottom Vault Footer */}
-      <View style={styles.footerSection}>
-        <View style={styles.vaultRow}>
-          <Feather name="lock" size={14} color="#00c3e4" style={{ marginRight: 6 }} />
-          <Text style={styles.vaultText}>
-            End-to-end encrypted student repository & artifact vault
-          </Text>
-        </View>
-        <Text style={styles.legalLinks}>
-          Terms of Service   •   Privacy Policy   •   Audit Hash
-        </Text>
-      </View>
     </ScrollView>
   );
 }
@@ -419,6 +634,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
+  },
+  logoImage: {
+    width: 34,
+    height: 34,
   },
   titleRow: {
     flexDirection: 'row',
@@ -503,19 +722,53 @@ const styles = StyleSheet.create({
   successBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#122619',
+    backgroundColor: '#0a1e38',
     borderWidth: 1,
-    borderColor: '#1d4d29',
+    borderColor: '#19395e',
     borderRadius: 8,
     padding: 12,
     width: '100%',
     marginBottom: 16,
   },
   successBoxText: {
-    color: '#73d13d',
+    color: '#00c3e4',
     fontSize: 13,
     flex: 1,
   },
+  profileImageSection: {
+  alignItems: 'center',
+  marginBottom: 20,
+},
+
+profileImageButton: {
+  width: 86,
+  height: 86,
+  borderRadius: 43,
+  backgroundColor: '#0f1d36',
+  borderWidth: 1.5,
+  borderColor: '#00c3e4',
+  alignItems: 'center',
+  justifyContent: 'center',
+  overflow: 'hidden',
+},
+
+profileImage: {
+  width: '100%',
+  height: '100%',
+},
+
+addPhotoText: {
+  color: '#00c3e4',
+  fontSize: 11,
+  fontWeight: '600',
+  marginTop: 4,
+},
+
+photoHint: {
+  color: '#657b9c',
+  fontSize: 11,
+  marginTop: 6,
+},
   formCard: {
     width: '100%',
     backgroundColor: '#0b1426',
