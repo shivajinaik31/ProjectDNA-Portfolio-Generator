@@ -1,56 +1,34 @@
-# Welcome to your Expo app 👋
+ProjectDNA – AI Portfolio Generator
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
-## Get started
+ProjectDNA is an AI-powered portfolio and career management application designed to help users manage their professional identity, projects, skills, education, and experience in one centralized platform. Built using React Native, Expo, TypeScript, Expo Router, Supabase, and Google Gemini AI, the application connects portfolio management with AI-powered career assistance and dynamic resume generation.
 
-1. Install dependencies
+The application provides a complete authentication system using Supabase, including user registration, login, protected routes, authentication state management, and navigation between authentication, profile setup, and the main dashboard. After registration, users are guided through profile setup, where they can provide their name, email, bio, professional role, GitHub, LinkedIn, education, and professional experience. Profile avatars can also be selected using Expo Image Picker and integrated with Supabase Storage.
 
-   ```bash
-   npm install
-   ```
+The Dashboard acts as the main interface of the application and provides access to projects, profile information, quick actions, project thumbnails, portfolio functionality, and the AI Resume feature. Users can create and manage projects containing titles, descriptions, GitHub repositories, live demo links, project status, and thumbnails. Project images can be selected locally, previewed, uploaded to Supabase Storage, and associated with the corresponding project through their public URLs.
 
-2. Start the app
+ProjectDNA also includes a skill management system that stores user skills and their relationship with projects. Skill information can include skill names, categories, proficiency scores, and project counts. This information can be used by the application's AI-powered features and can also be included when generating resumes.
 
-   ```bash
-   npx expo start
-   ```
+One of the major AI features is AI-powered project analysis. The analyze-project Supabase Edge Function receives project information and uses Gemini AI to generate project summaries, identify technologies, identify relevant skills, and provide project analysis. The generated information is connected to the project data and can subsequently be used by other features, including resume generation.
 
-In the output, you'll find options to open the app in a
+The AI Resume Generator is another major feature of ProjectDNA. It allows users to create a professional resume using information already stored in their ProjectDNA account. The Resume Builder allows users to select a resume type and experience level and choose whether to include projects, skills, education, experience, GitHub, and LinkedIn information. The system retrieves the user's profile, projects, project AI analysis, skills, education, experience, and links from Supabase and sends the selected information to the resume-generation backend.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+Resume generation is handled through the generate-resume Supabase Edge Function. The Edge Function securely communicates with the Gemini API without exposing the Gemini API key inside the mobile application. The Gemini API credential is stored using Supabase Secrets and retrieved by the Edge Function at runtime. The function validates the received information, prepares a dedicated resume-generation prompt, sends the information to Gemini, and requests a structured JSON response.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+The resume-generation prompt is designed to keep the generated resume based on the user's actual information. The AI is instructed not to invent companies, jobs, internships, achievements, technologies, metrics, education, or experience. It can improve grammar, wording, professional presentation, project descriptions, and resume bullet points while remaining limited to the information supplied by the application. The generated response follows a predefined structure containing the user's name, professional title, email, summary, GitHub, LinkedIn, skills, education, experience, and projects.
 
-## Get a fresh project
+The generated project information contains the project name, description, technologies, and professional resume bullet points. Experience information contains the company, role, and bullet points, while education information contains the institution, degree, and details. This structured format allows the application to process and display the generated resume consistently.
 
-When you're ready, run:
+The Resume Preview screen was implemented to use dynamically generated resume data instead of static sample information. The generated resume is passed from the Resume Builder through Expo Router, parsed, and displayed dynamically. The preview can display the user's name, professional title, email, summary, GitHub, LinkedIn, skills, education, experience, and projects, with optional sections displayed only when relevant information is available.
 
-```bash
-npm run reset-project
-```
+Supabase serves as the main backend platform for ProjectDNA and provides authentication, database services, storage, Edge Functions, and secure secrets. The application works with user, project, project-analysis, skills, user-skills, education, and experience data. Supabase Storage is used for profile and project images, while Edge Functions provide the backend layer for AI-powered functionality.
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+The application's architecture separates the mobile application from the AI processing layer. Instead of directly exposing the Gemini API from the Expo application, requests are sent from the application to a Supabase Edge Function, which communicates with Gemini and returns the generated data. This keeps the Gemini API credential on the backend and prevents it from being exposed inside the mobile application.
 
-### Other setup steps
+ProjectDNA uses Expo Router for application navigation, with routes for authentication, tabs, profile setup, projects, public portfolios, resume building, and resume preview. Public portfolio functionality allows portfolio information to be accessed through a portfolio slug without requiring the visitor to authenticate.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+The application has been tested through an Android development environment and emulator. The development workflow includes running the Expo application, testing functionality on Android, checking Supabase when backend functionality is involved, deploying updated Edge Functions when AI or backend logic changes, testing the complete workflow, and preparing APK or AAB builds when required. EAS is used for Android builds, with APK builds intended for direct testing and AAB builds intended for Play Store distribution.
 
-## Learn more
+The application includes error handling for authentication, profile loading, project loading, skills, education, experience, AI API requests, Edge Functions, invalid resume data, missing resume data, and storage uploads. Detailed backend and AI errors are logged through the Supabase Edge Function logs to assist with debugging. Gemini model logging was also added so the currently configured AI model can be verified from the Edge Function logs.
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Overall, ProjectDNA combines portfolio management, professional profile management, AI project analysis, and AI-assisted resume generation into a single career-focused platform. By connecting the user's projects, skills, education, experience, and professional information, the application creates a centralized source of career data that can be used to build and present a professional portfolio and dynamically generate structured resumes.
